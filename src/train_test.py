@@ -18,6 +18,7 @@ import os
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
     parser.add_argument("training_dir", help="Dir with the training CSV files")
     return parser.parse_args()
 
@@ -55,6 +56,7 @@ def load_data(training_dir):
         data = pandas.concat([data, other_data.reindex(data.index, method="nearest")], axis=1)
 
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
+    # data["days_in_space_log"] = numpy.log(data["days_in_space"])
 
     return data.fillna(data.mean())
 
@@ -79,23 +81,17 @@ def main():
 
     power_data = load_data(args.training_dir)
 
-    # sample the data to speed up the runtime
-    # power_data = power_data.sample(frac=0.05)
-
     # cross validation by year
     splits = sklearn.cross_validation.LeaveOneLabelOut(power_data["file_number"])
-
-    # power_means = collections.Counter({col: power_data[col].mean() for col in power_data.columns if "NPWD" in col})
-    # print "Power means", power_means.most_common()
+    power_data.drop("file_number", axis=1, inplace=True)
 
     # just use the biggest one for now
-    # Y = power_data["NPWD2532"]
     Y = power_data[[col for col in power_data.columns if col.startswith("NPWD")]]
     X = power_data[[col for col in power_data.columns if not col.startswith("NPWD")]]
 
-    X.info()
-
-    print X.describe()
+    if args.extra_analysis:
+        X.info()
+        print X.describe()
 
     X = sklearn.preprocessing.StandardScaler().fit_transform(X)
 
@@ -105,7 +101,8 @@ def main():
     print "DummyRegressor(mean): {:.3f} +/- {:.3f}".format(baseline_scores.mean(), baseline_scores.std())
 
     # upper bound: predict average per diem
-    compute_upper_bounds(power_data)
+    if args.extra_analysis:
+        compute_upper_bounds(power_data)
 
     model = sklearn.linear_model.LinearRegression()
     scores = mse_to_rms(sklearn.cross_validation.cross_val_score(model, X, Y, scoring="mean_squared_error", cv=splits))
