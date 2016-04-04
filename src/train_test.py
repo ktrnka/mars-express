@@ -92,7 +92,8 @@ def main():
         X_train.info()
         print X_train.describe()
 
-    X_train = sklearn.preprocessing.StandardScaler().fit_transform(X_train)
+    scaler = sklearn.preprocessing.StandardScaler()
+    X_train = scaler.fit_transform(X_train)
 
     # lower bound: predict mean
     baseline = sklearn.dummy.DummyRegressor("mean")
@@ -122,15 +123,16 @@ def main():
 
 
     # retrain a model on the full data
-    baseline = sklearn.dummy.DummyRegressor("mean")
-    baseline.fit(X_train, Y_train)
+    model = sklearn.linear_model.LinearRegression()
+    model.fit(X_train, Y_train)
 
-    predict_test_data(baseline, args, Y_train)
+    predict_test_data(model, scaler, args, Y_train)
 
 
-def predict_test_data(model, args, Y_train):
+def predict_test_data(model, scaler, args, Y_train):
     test_data = load_data(args.testing_dir)
     X_test, Y_test = separate_output(test_data)
+    X_test = scaler.transform(X_test)
 
     test_data[Y_train.columns] = model.predict(X_test)
 
