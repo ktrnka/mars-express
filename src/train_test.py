@@ -120,22 +120,21 @@ def main():
     # scores = mse_to_rms(sklearn.cross_validation.cross_val_score(wrapped_model, X, Y, scoring="mean_squared_error", cv=splits))
     # print "RandomForestRegression(tuned): {:.3f} +/- {:.3f}".format(scores.mean(), scores.std())
 
-    # load the test data and run predictions
-    test_data = load_data(args.testing_dir)
-    print test_data.describe()
-
-    X_test, Y_test = separate_output(test_data)
 
     # retrain a model on the full data
     baseline = sklearn.dummy.DummyRegressor("mean")
     baseline.fit(X_train, Y_train)
 
-    test_data[Y_train.columns] = baseline.predict(X_test)
+    predict_test_data(baseline, args, Y_train)
 
-    print "Test data describe", test_data.describe()
 
-    print "Train data describe", train_data.describe()
+def predict_test_data(model, args, Y_train):
+    test_data = load_data(args.testing_dir)
+    X_test, Y_test = separate_output(test_data)
 
+    test_data[Y_train.columns] = model.predict(X_test)
+
+    # redo the index as unix timestamp
     test_data.index = test_data.index.astype(numpy.int64) / 10 ** 6
     test_data[Y_test.columns].to_csv(args.prediction_file, index_label="ut_ms")
 
