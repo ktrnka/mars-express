@@ -88,22 +88,22 @@ def load_data(data_dir, resample_interval=None):
     longterm_data = load_series(find_files(data_dir, "ltdata"))
 
     # as far as I can tell this doesn't make a difference
-    longterm_data = longterm_data.resample("1H").mean().interpolate().fillna(method="backfill")
+    # longterm_data = longterm_data.resample("1H").mean().interpolate().fillna(method="backfill")
 
     # events
-    event_data = load_series(find_files(data_dir, "evtf"))
-    merge_umbra_penumbra(data, event_data)
+    # event_data = load_series(find_files(data_dir, "evtf"))
+    # merge_umbra_penumbra(data, event_data)
 
-    dmop_data = load_series(find_files(data_dir, "dmop"))
-    dmop_data["subsystem"] = dmop_data.subsystem.str.replace(r"\..+", "")
-    dmop_data["dummy"] = 1
-    dmop_data = dmop_data.pivot_table(index=dmop_data.index, columns="subsystem", values="dummy").resample("1H").count()
+    # dmop_data = load_series(find_files(data_dir, "dmop"))
+    # dmop_data["subsystem"] = dmop_data.subsystem.str.replace(r"\..+", "")
+    # dmop_data["dummy"] = 1
+    # dmop_data = dmop_data.pivot_table(index=dmop_data.index, columns="subsystem", values="dummy").resample("1H").count()
 
-    dmop_data = dmop_data.reindex(data.index, method="nearest")
+    # dmop_data = dmop_data.reindex(data.index, method="nearest")
     saaf_data = saaf_data.reindex(data.index, method="nearest")
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
-    data = pandas.concat([data, saaf_data, longterm_data, dmop_data], axis=1)
+    data = pandas.concat([data, saaf_data, longterm_data], axis=1)
 
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
 
