@@ -35,6 +35,37 @@ def find_files(path, substring):
     return sorted(os.path.join(path, f) for f in files if substring in f)
 
 
+def get_event_ranges(event_data, event_prefix):
+    current_start = None
+    event_ranges = []
+    for date, row in event_data[event_data.description.str.startswith(event_prefix)].iterrows():
+        if row["description"].endswith("_START"):
+            current_start = date
+        elif current_start:
+            assert row["description"].endswith("_END")
+            event_ranges.append({"duration": date - current_start,
+                                 "start": current_start,
+                                 "end": date})
+            current_start = None
+    return event_ranges
+
+
+def fill_events(data, event_data, prefix):
+    col = "IN_" + prefix
+    data[col] = 0
+
+    for event in get_event_ranges(event_data, prefix):
+        closest_start = data.index.searchsorted(event["start"], side="right")
+        closest_end = data.index.searchsorted(event["end"], side="left")
+        data.loc[closest_start:closest_end, col] = 1
+
+
+def merge_umbra_penumbra(data, event_data):
+    for obj in "MAR PHO DEI".split():
+        for event in "UMBRA PENUMBRA".split():
+            fill_events(data, event_data, "{}_{}".format(obj, event))
+
+
 def load_series(files, add_file_number=False, resample_interval=None):
     data = [pandas.read_csv(f, parse_dates=["ut_ms"], date_parser=parse_dates, index_col=0) for f in files]
 
@@ -53,13 +84,26 @@ def load_data(data_dir, resample_interval=None):
     data = load_series(find_files(data_dir, "power"), add_file_number=True, resample_interval=resample_interval)
 
     saaf_data = load_series(find_files(data_dir, "saaf"))
+
     longterm_data = load_series(find_files(data_dir, "ltdata"))
 
-    # longterm_lagged = longterm_data.rolling(7).mean().fillna(method="bfill")
-    # longterm_data = longterm_data.merge(longterm_lagged, left_index=True, right_index=True, suffixes=("", "_rolling7"))
+    # as far as I can tell this doesn't make a difference
+    longterm_data = longterm_data.resample("1H").mean().interpolate().fillna(method="backfill")
 
-    for other_data in [saaf_data, longterm_data]:
-        data = pandas.concat([data, other_data.reindex(data.index, method="nearest")], axis=1)
+    # events
+    event_data = load_series(find_files(data_dir, "evtf"))
+    merge_umbra_penumbra(data, event_data)
+
+    dmop_data = load_series(find_files(data_dir, "dmop"))
+    dmop_data["subsystem"] = dmop_data.subsystem.str.replace(r"\..+", "")
+    dmop_data["dummy"] = 1
+    dmop_data = dmop_data.pivot_table(index=dmop_data.index, columns="subsystem", values="dummy").resample("1H").count()
+
+    dmop_data = dmop_data.reindex(data.index, method="nearest")
+    saaf_data = saaf_data.reindex(data.index, method="nearest")
+    longterm_data = longterm_data.reindex(data.index, method="nearest")
+
+    data = pandas.concat([data, saaf_data, longterm_data, dmop_data], axis=1)
 
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
 
@@ -146,18 +190,18 @@ def main():
     # print "RandomForestRegression(tuned): {:.3f} +/- {:.3f}".format(scores.mean(), scores.std())
 
     # BROKEN! GradientBoosting only handles univariate output
-    model = VectorRegression(sklearn.ensemble.GradientBoostingRegressor())
-    scores = mse_to_rms(sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring="mean_squared_error", cv=splits))
-    print "GradientBoostingRegressor: {:.3f} +/- {:.3f}".format(scores.mean(), scores.std())
+    # model = VectorRegression(sklearn.ensemble.GradientBoostingRegressor())
+    # scores = mse_to_rms(sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring="mean_squared_error", cv=splits))
+    # print "GradientBoostingRegressor: {:.3f} +/- {:.3f}".format(scores.mean(), scores.std())
 
 
     baseline_model.fit(X_train, Y_train)
 
     # retrain a model on the full data
     # model = sklearn.linear_model.LinearRegression()
-    wrapped_model.fit(X_train, Y_train)
+    model.fit(X_train, Y_train)
 
-    predict_test_data(wrapped_model, scaler, args, Y_train, baseline_model=baseline_model)
+    predict_test_data(model, scaler, args, Y_train, baseline_model=baseline_model)
 
 
 def predict_test_data(model, scaler, args, Y_train, baseline_model=None):
