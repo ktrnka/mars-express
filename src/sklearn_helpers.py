@@ -5,6 +5,8 @@ import sys
 import argparse
 from operator import itemgetter
 
+import collections
+
 import numpy
 import pandas
 import scipy.optimize
@@ -90,6 +92,46 @@ class MultivariateRegressionWrapper(sklearn.base.BaseEstimator):
 
         return result
 
+    def get_best_param_distributions(self):
+        """Get distributions over grid search parameters for the best models on each output"""
+
+        params = collections.defaultdict(list)
+        for estimator in self.estimators_:
+            for k, v in estimator.best_params_:
+                params[k].append(v)
+
+        return {k: numpy.asarray(v) for k, v in params.iteritems()}
+
+    def print_best_params(self):
+        print "Best hyperparameters for grid search inside of multivariate regression"
+
+        for name, dist in self.get_best_param_distributions():
+            print "{}: {:.1f} +/- {:.1f}".format(name, dist.mean(), dist.std())
+
+    def get_feature_importances(self, feature_names):
+        feature_importances = collections.defaultdict(list)
+
+        for estimator in self.estimators_:
+            try:
+                importances = estimator.feature_feature_importances_
+            except AttributeError:
+                try:
+                    importances = estimator.best_estimator_.feature_feature_importances_
+                except AttributeError:
+                    raise ValueError("Unable to find feature_importances_")
+
+            for feature_name, feature_score in zip(feature_names, importances):
+                feature_importances[feature_name].append(feature_score)
+
+        return {k: numpy.asarray(v) for k, v in feature_importances.iteritems()}
+
+    def print_feature_importances(self, feature_names):
+        print "Feature importances"
+
+        scores = self.get_feature_importances(feature_names)
+        for name, dist in sorted(scores.iteritems(), key=lambda pair: pair[1].mean(), reverse=True):
+            print "{}: {:.3f} +/- {:.3f}".format(name, dist.mean(), dist.std())
+
 
 def print_tuning_scores(tuned_estimator, reverse=True, score_transformer=None):
     """Show the cross-validation scores and hyperparamters from a grid or random search"""
@@ -97,13 +139,13 @@ def print_tuning_scores(tuned_estimator, reverse=True, score_transformer=None):
         scores = test.cv_validation_scores
         if score_transformer:
             scores = score_transformer(scores)
-        print "Validation score {:.2f} +/- {:.2f}, Hyperparams {}".format(100. * scores.mean(),
-                                                                          100. * scores.std(),
+        print "Validation score {:.4f} +/- {:.4f}, Hyperparams {}".format(scores.mean(),
+                                                                          scores.std(),
                                                                           test.parameters)
 
 
 def mse_to_rms(scores):
-    return numpy.sqrt(-scores)
+    return numpy.sqrt(numpy.abs(scores))
 
 
 def print_feature_importances(columns, classifier):
@@ -114,3 +156,17 @@ def print_feature_importances(columns, classifier):
     print "Feature importances"
     for feature_name, importance in sorted(paired_features, key=itemgetter(1), reverse=True):
         print format_string.format(feature_name, importance)
+
+
+class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
+    def __init__(self, *args, **kwargs):
+        super(RandomizedSearchCV, self).__init__(*args, **kwargs)
+
+    def print_tuning_scores(self, score_transformer=None, reverse=True):
+        for test in sorted(self.grid_scores_, key=itemgetter(1), reverse=reverse):
+            scores = test.cv_validation_scores
+            if score_transformer:
+                scores = score_transformer(scores)
+                print "Validation score {:.4f} +/- {:.4f}, Hyperparams {}".format(scores.mean(),
+                                                                                  scores.std(),
+                                                                                  test.parameters)

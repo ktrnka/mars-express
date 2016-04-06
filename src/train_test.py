@@ -24,6 +24,8 @@ from src.sklearn_helpers import MultivariateRegressionWrapper, print_tuning_scor
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
+    parser.add_argument("--analyse-feature-importance", default=False, action="store_true", help="Analyse feature importance and print them out for some models")
+    parser.add_argument("--analyse-hyperparameters", default=False, action="store_true", help="Analyse hyperparameters and print them out for some models")
     parser.add_argument("training_dir", help="Dir with the training CSV files")
     parser.add_argument("testing_dir", help="Dir with the testing files, including the empty prediction file")
     parser.add_argument("prediction_file", help="Destination for predictions")
@@ -216,45 +218,82 @@ def main():
     model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=0.8))
     cross_validate(X_train, Y_train, model, "Bagging(LinearRegression)", splits)
 
-    # model = MultivariateRegressionWrapper(sklearn.svm.LinearSVR())
-    # cross_validate(X_train, Y_train, model, "LinearSVR", splits)
+    bagging_params = {
+        "max_samples": scipy.stats.uniform(0.8, 0.2),
+        "max_features": scipy.stats.randint(4, X_train.shape[1] + 1)
+    }
+    base_model = sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression())
+    model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, bagging_params, n_iter=10, n_jobs=3, scoring="mean_squared_error"))
+    cross_validate(X_train, Y_train, model, "RandomizedSearchCV(Bagging(LinearRegression))", splits)
+    if args.analyse_hyperparameters:
+        # refit on full data to get a single model and spit out the info
+        base_model = sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression())
+        model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, bagging_params, n_iter=10, n_jobs=3, scoring="mean_squared_error"))
+        model.fit(X_train, Y_train)
+        print_tuning_scores(model, reverse=True, score_transformer=mse_to_rms)
 
-    model = sklearn.ensemble.RandomForestRegressor(20, min_samples_leaf=100, max_depth=3)
+
+    model = sklearn.ensemble.RandomForestRegressor(80, min_samples_leaf=30, max_depth=15, max_features=15)
     cross_validate(X_train, Y_train, model, "RandomForestRegressor", splits)
 
-    rf_hyperparams = {
+    # rf_hyperparams = {
+    #     "min_samples_leaf": scipy.stats.randint(10, 100),
+    #     "max_depth": scipy.stats.randint(5, 15),
+    #     "max_features": scipy.stats.randint(4, X_train.shape[1] + 1),
+    #     "n_estimators": scipy.stats.randint(20, 100)
+    # }
+    # wrapped_model = sklearn.grid_search.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3, scoring="mean_squared_error")
+    # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(RandomForestRegression)", splits)
+    #
+    # if args.analyse_hyperparameters:
+    #     model = sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.RandomForestRegressor(), rf_hyperparams, n_iter=20, n_jobs=3, cv=splits, scoring="mean_squared_error")
+    #     model.fit(X_train, Y_train)
+    #     print_tuning_scores(model, reverse=True, score_transformer=mse_to_rms)
+    #
+    #     if args.analyse_feature_importance:
+    #         print_feature_importances(X_train_orig.columns, model.best_estimator_)
+
+    gb_hyperparams = {
+        "learning_rate": scipy.stats.uniform(0.1, 0.5),
+        "n_estimators": scipy.stats.randint(20, 100),
+        "max_depth": scipy.stats.randint(3, 6),
         "min_samples_leaf": scipy.stats.randint(10, 100),
-        "max_depth": scipy.stats.randint(3, 10),
-        "max_features": ["sqrt", "log2", 1.0, 0.3],
-        "n_estimators": scipy.stats.randint(20, 100)
+        "subsample": [0.9, 1.],
+        "max_features": scipy.stats.randint(4, X_train.shape[1] + 1),
+        "init": [None, sklearn.linear_model.LinearRegression()]
     }
-    wrapped_model = sklearn.grid_search.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3)
-    cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(RandomForestRegression)", splits)
-
-    # if we want tuning scores we need to refit without cross-validation
-    model = sklearn.grid_search.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3, cv=splits)
-    model.fit(X_train, Y_train)
-    print_tuning_scores(model, reverse=False, score_transformer=mse_to_rms)
-
     model = MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor())
     cross_validate(X_train, Y_train, model, "GradientBoostingRegressor", splits)
 
-    # feature importances on the top N outputs
-    scores = collections.Counter({col: Y_train[col].mean() + Y_train[col].std() for col in Y_train.columns})
-    feature_importances = collections.defaultdict(list)
-    for col, _ in scores.most_common(10):
-        print "Feature importances for output {}".format(col)
-        model = sklearn.ensemble.GradientBoostingRegressor()
-        model.fit(X_train, Y_train[col])
+    wrapped_model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.GradientBoostingRegressor(), gb_hyperparams, n_iter=10, n_jobs=3, scoring="mean_squared_error"))
+    cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(GradientBoostingRegressor)", splits)
 
-        for feature_name, feature_score in zip(X_train_orig.columns, model.feature_importances_):
-            feature_importances[feature_name].append(feature_score)
-        print_feature_importances(X_train_orig.columns, model)
+    if args.analyse_hyperparameters:
+        model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.GradientBoostingRegressor(), gb_hyperparams, n_iter=20, n_jobs=3, cv=splits, scoring="mean_squared_error"))
+        model.fit(X_train, Y_train)
+        print_tuning_scores(model, reverse=True, score_transformer=mse_to_rms)
 
-    print "\nSummed importances".upper()
-    for feature_name, feature_scores in sorted(feature_importances.items(), key=lambda p: sum(p[1]), reverse=True):
-        feature_scores = numpy.asarray(feature_scores)
-        print "\t{}: {:.3f} +/- {:.3f}".format(feature_name, feature_scores.mean(), feature_scores.std())
+        if args.analyse_feature_importance:
+            print_feature_importances(X_train_orig.columns, model.best_estimator_)
+
+
+    if args.analyse_feature_importance:
+        # feature importances on the top N outputs
+        scores = collections.Counter({col: Y_train[col].mean() + Y_train[col].std() for col in Y_train.columns})
+        feature_importances = collections.defaultdict(list)
+        for col, _ in scores.most_common(10):
+            print "Feature importances for output {}".format(col)
+            model = sklearn.ensemble.GradientBoostingRegressor()
+            model.fit(X_train, Y_train[col])
+
+            for feature_name, feature_score in zip(X_train_orig.columns, model.feature_importances_):
+                feature_importances[feature_name].append(feature_score)
+            print_feature_importances(X_train_orig.columns, model)
+
+        print "\nSummed importances".upper()
+        for feature_name, feature_scores in sorted(feature_importances.items(), key=lambda p: sum(p[1]), reverse=True):
+            feature_scores = numpy.asarray(feature_scores)
+            print "\t{}: {:.3f} +/- {:.3f}".format(feature_name, feature_scores.mean(), feature_scores.std())
 
     if args.prediction_file != "-":
         baseline_model.fit(X_train, Y_train)
