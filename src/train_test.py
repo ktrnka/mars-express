@@ -126,19 +126,32 @@ def load_data(data_dir, resample_interval=None):
     fill_events(data, get_event_ranges(event_data, "MRB_/_RANGE_06000KM"), "IN_MRB_/_RANGE_06000KM")
     fill_events(data, get_event_ranges(event_data, "MSL_/_RANGE_06000KM"), "IN_MSL_/_RANGE_06000KM")
 
+    event_data.drop(["description"], axis=1, inplace=True)
+    event_data["event_counts"] = 1
+    event_data = event_data.resample("1H").count().reindex(data.index, method="nearest")
 
-    # dmop_data = load_series(find_files(data_dir, "dmop"))
-    # dmop_data["subsystem"] = dmop_data.subsystem.str.replace(r"\..+", "")
-    # dmop_data["dummy"] = 1
-    # dmop_data = dmop_data.pivot_table(index=dmop_data.index, columns="subsystem", values="dummy").resample("1H").count()
-    #
-    # dmop_data = dmop_data.reindex(data.index, method="nearest")
-    saaf_data = saaf_data.reindex(data.index, method="nearest")
+    dmop_data = load_series(find_files(data_dir, "dmop"))
+    dmop_data.drop(["subsystem"], axis=1, inplace=True)
+    dmop_data["dmop_counts"] = 1
+    dmop_data = dmop_data.resample("1H").count().reindex(data.index, method="nearest")
+    add_lag_feature(dmop_data, "dmop_counts", 24 * 7)
+
+    # resample saaf to 30 minute windows before reindexing to smooth it out a bit
+    saaf_data = saaf_data.resample("30Min").mean().reindex(data.index, method="nearest")
+
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
-    data = pandas.concat([data, saaf_data, longterm_data], axis=1)
+    data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data], axis=1)
 
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
+
+    # # replace some features with cut versions
+    # for feature in ["sz", "sy", "sx", "dmop_counts_rolling_7d", "dmop_counts", "event_counts"]:
+    #     data[feature] = pandas.cut(data[feature], 20, labels=False)
+
+    for feature in ["sz", "sy", "sx", "sa"]:
+        data["sin_{}".format(feature)] = numpy.sin(data[feature] / 360)
+        data["cos_{}".format(feature)] = numpy.cos(data[feature] / 360)
 
     # derived angle features
     # for feature in ["sz", "sy"]:
@@ -150,7 +163,7 @@ def load_data(data_dir, resample_interval=None):
     #     for window in [24 * 7, 24 * 2, 24 * 14]:
     #         add_lag_feature(data, feature, window)
 
-    add_lag_feature(data, "eclipseduration_min", 24 * 14)
+    # add_lag_feature(data, "eclipseduration_min", 24 * 14)
     # add_lag_feature(data, "sunmars_km", 24 * 14, drop=True)
 
     return data.fillna(data.mean())
@@ -328,7 +341,7 @@ def main():
         baseline_model.fit(X_train, Y_train)
 
         # retrain a model on the full data
-        # model = sklearn.linear_model.LinearRegression()
+        model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=0.8))
         model.fit(X_train, Y_train)
 
         predict_test_data(model, scaler, args, Y_train, baseline_model=baseline_model)
