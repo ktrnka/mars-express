@@ -17,6 +17,7 @@ import sklearn.grid_search
 import sklearn.linear_model
 import sklearn.preprocessing
 import sklearn.svm
+from src import sklearn_helpers
 from src.sklearn_helpers import MultivariateRegressionWrapper, print_tuning_scores, mse_to_rms, \
     print_feature_importances
 
@@ -82,8 +83,6 @@ def merge_umbra_penumbra(data, event_data):
                 pen_col = "IN_{}_{}".format(obj, "PENUMBRA")
                 mean_before = data[pen_col].mean()
                 data.loc[data["IN_" + prefix] == 1, pen_col] = 0
-
-                print "Penumbra mean changed from {} to {}".format(mean_before, data[pen_col].mean())
 
             # add duration columns
             # fill_events(data, get_event_ranges(event_data, prefix), prefix + "_SECONDS_ELAPSED", add_duration=True)
@@ -193,15 +192,9 @@ def main():
     if args.extra_analysis:
         X_train.info()
         print X_train.describe()
-
-    # # curve fitting (need the pandas DataFrame for the date index
-    # time_offsets = TimeSeriesRegressor.get_time_offset(X_train, pandas.datetime(year=2003, month=6, day=2))
-    # model = MultivariateRegressionWrapper(TimeSeriesRegressor())
-    # cross_validate(time_offsets, Y_train, model, "TimeSeriesRegressor", splits)
-
+        compute_upper_bounds(train_data)
 
     scaler = sklearn.preprocessing.RobustScaler()
-    X_train_orig = X_train
     feature_names = X_train.columns
     X_train = scaler.fit_transform(X_train)
 
@@ -209,89 +202,94 @@ def main():
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(X_train, Y_train, baseline_model, "DummyRegressor(mean)", splits)
 
-    # upper bound: predict average per diem
-    if args.extra_analysis:
-        compute_upper_bounds(train_data)
-
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, "LinearRegression", splits)
 
-    model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=0.8))
+    experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=True)
+
+    experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
+
+    experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
+
+    if args.prediction_file != "-":
+        # retrain baseline model as a sanity check
+        baseline_model.fit(X_train, Y_train)
+
+        # retrain a model on the full data
+        model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=12))
+        model.fit(X_train, Y_train)
+
+        predict_test_data(model, scaler, args, Y_train, baseline_model=baseline_model)
+
+
+def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False):
+    model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=12, n_estimators=30))
     cross_validate(X_train, Y_train, model, "Bagging(LinearRegression)", splits)
 
-    bagging_params = {
-        "max_samples": scipy.stats.uniform(0.8, 0.2),
-        "max_features": scipy.stats.randint(4, X_train.shape[1] + 1)
-    }
-    base_model = sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression())
-    model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, bagging_params, n_iter=10, n_jobs=1, scoring="mean_squared_error"))
-    cross_validate(X_train, Y_train, model, "RandomizedSearchCV(Bagging(LinearRegression))", splits)
+    if args.analyse_hyperparameters and tune_params:
+        bagging_params = {
+            "max_samples": scipy.stats.uniform(0.8, 0.2),
+            "max_features": scipy.stats.randint(4, X_train.shape[1] + 1)
+        }
+        base_model = sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), n_estimators=30)
+        model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, bagging_params, n_iter=20, n_jobs=1, scoring="mean_squared_error"))
+        cross_validate(X_train, Y_train, model, "RandomizedSearchCV(Bagging(LinearRegression))", splits)
 
-    if args.analyse_hyperparameters:
         # refit on full data to get a single model and spit out the info
-        base_model = sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression())
-        model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, bagging_params, n_iter=10, n_jobs=1, scoring="mean_squared_error"))
         model.fit(X_train, Y_train)
         model.print_best_params()
 
 
+def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=False):
+    model = MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor())
+    cross_validate(X_train, Y_train, model, "GradientBoostingRegressor", splits)
+
+    if args.analyse_hyperparameters and tune_params:
+        gb_hyperparams = {
+            "learning_rate": scipy.stats.uniform(0.1, 0.5),
+            "n_estimators": scipy.stats.randint(20, 100),
+            "max_depth": scipy.stats.randint(3, 6),
+            "min_samples_leaf": scipy.stats.randint(10, 100),
+            # "subsample": [0.9, 1.],
+            "max_features": scipy.stats.randint(4, X_train.shape[1] + 1),
+            # "init": [None, sklearn_helpers.LinearRegressionWrapper()]
+        }
+        wrapped_model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.GradientBoostingRegressor(), gb_hyperparams, n_iter=20, n_jobs=3, scoring="mean_squared_error"))
+        cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(GradientBoostingRegressor)", splits)
+
+        wrapped_model.fit(X_train, Y_train)
+        wrapped_model.print_best_params()
+
+        if args.analyse_feature_importance:
+            wrapped_model.print_feature_importances(feature_names)
+
+
+def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False):
+    # plain model
     model = sklearn.ensemble.RandomForestRegressor(80, min_samples_leaf=30, max_depth=15, max_features=15)
     cross_validate(X_train, Y_train, model, "RandomForestRegressor", splits)
 
-    rf_hyperparams = {
-        "min_samples_leaf": scipy.stats.randint(10, 100),
-        "max_depth": scipy.stats.randint(5, 15),
-        "max_features": scipy.stats.randint(4, X_train.shape[1] + 1),
-        "n_estimators": scipy.stats.randint(20, 100)
-    }
-    wrapped_model = sklearn.grid_search.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3, scoring="mean_squared_error")
-    cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(RandomForestRegression)", splits)
+    if args.analyse_hyperparameters and tune_params:
+        rf_hyperparams = {
+            "min_samples_leaf": scipy.stats.randint(10, 100),
+            "max_depth": scipy.stats.randint(5, 15),
+            "max_features": scipy.stats.randint(4, X_train.shape[1] + 1),
+            "n_estimators": scipy.stats.randint(20, 100)
+        }
+        wrapped_model = sklearn.grid_search.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3, scoring="mean_squared_error")
+        cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(RandomForestRegression)", splits)
 
-    if args.analyse_hyperparameters:
-        model = sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.RandomForestRegressor(), rf_hyperparams, n_iter=20, n_jobs=3, cv=splits, scoring="mean_squared_error")
+        model = sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.RandomForestRegressor(), rf_hyperparams, n_iter=10, n_jobs=3, cv=splits, scoring="mean_squared_error")
         model.fit(X_train, Y_train)
         print_tuning_scores(model, reverse=True, score_transformer=mse_to_rms)
 
         if args.analyse_feature_importance:
             print_feature_importances(feature_names, model.best_estimator_)
 
-    gb_hyperparams = {
-        "learning_rate": scipy.stats.uniform(0.1, 0.5),
-        "n_estimators": scipy.stats.randint(20, 100),
-        "max_depth": scipy.stats.randint(3, 6),
-        "min_samples_leaf": scipy.stats.randint(10, 100),
-        "subsample": [0.9, 1.],
-        "max_features": scipy.stats.randint(4, X_train.shape[1] + 1),
-        "init": [None, sklearn.linear_model.LinearRegression()]
-    }
-    model = MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor())
-    cross_validate(X_train, Y_train, model, "GradientBoostingRegressor", splits)
-
-    wrapped_model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.GradientBoostingRegressor(), gb_hyperparams, n_iter=10, n_jobs=3, scoring="mean_squared_error"))
-    cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(GradientBoostingRegressor)", splits)
-
-    if args.analyse_hyperparameters:
-        model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.GradientBoostingRegressor(), gb_hyperparams, n_iter=20, n_jobs=3, cv=splits, scoring="mean_squared_error"))
-        model.fit(X_train, Y_train)
-        model.print_best_params()
-
-        if args.analyse_feature_importance:
-            model.print_feature_importances(feature_names)
-
-    if args.prediction_file != "-":
-        baseline_model.fit(X_train, Y_train)
-
-        # retrain a model on the full data
-        model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=0.8))
-        model.fit(X_train, Y_train)
-
-        predict_test_data(model, scaler, args, Y_train, baseline_model=baseline_model)
-
 
 def cross_validate(X_train, Y_train, model, model_name, splits):
-    scores = mse_to_rms(
-        sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring="mean_squared_error", cv=splits))
-    print "{}: {:.3f} +/- {:.3f}".format(model_name, scores.mean(), scores.std())
+    scores = mse_to_rms(sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring="mean_squared_error", cv=splits))
+    print "{}: {:.4f} +/- {:.4f}".format(model_name, scores.mean(), scores.std())
 
 
 def predict_test_data(model, scaler, args, Y_train, baseline_model=None):
