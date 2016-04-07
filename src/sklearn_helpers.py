@@ -97,7 +97,7 @@ class MultivariateRegressionWrapper(sklearn.base.BaseEstimator):
 
         params = collections.defaultdict(list)
         for estimator in self.estimators_:
-            for k, v in estimator.best_params_:
+            for k, v in estimator.best_params_.iteritems():
                 params[k].append(v)
 
         return {k: numpy.asarray(v) for k, v in params.iteritems()}
@@ -105,18 +105,18 @@ class MultivariateRegressionWrapper(sklearn.base.BaseEstimator):
     def print_best_params(self):
         print "Best hyperparameters for grid search inside of multivariate regression"
 
-        for name, dist in self.get_best_param_distributions():
-            print "{}: {:.1f} +/- {:.1f}".format(name, dist.mean(), dist.std())
+        for name, dist in self.get_best_param_distributions().iteritems():
+            print "\t{}: {:.2f} +/- {:.2f}".format(name, dist.mean(), dist.std())
 
     def get_feature_importances(self, feature_names):
         feature_importances = collections.defaultdict(list)
 
         for estimator in self.estimators_:
             try:
-                importances = estimator.feature_feature_importances_
+                importances = estimator.feature_importances_
             except AttributeError:
                 try:
-                    importances = estimator.best_estimator_.feature_feature_importances_
+                    importances = estimator.best_estimator_.feature_importances_
                 except AttributeError:
                     raise ValueError("Unable to find feature_importances_")
 
@@ -130,7 +130,7 @@ class MultivariateRegressionWrapper(sklearn.base.BaseEstimator):
 
         scores = self.get_feature_importances(feature_names)
         for name, dist in sorted(scores.iteritems(), key=lambda pair: pair[1].mean(), reverse=True):
-            print "{}: {:.3f} +/- {:.3f}".format(name, dist.mean(), dist.std())
+            print "\t{}: {:.3f} +/- {:.3f}".format(name, dist.mean(), dist.std())
 
 
 def print_tuning_scores(tuned_estimator, reverse=True, score_transformer=None):
@@ -170,3 +170,11 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
                 print "Validation score {:.4f} +/- {:.4f}, Hyperparams {}".format(scores.mean(),
                                                                                   scores.std(),
                                                                                   test.parameters)
+
+class LinearRegressionWrapper(sklearn.linear_model.LinearRegression):
+    """Wrapper for LinearRegression that's compatible with GradientBoostingClassifier sample_weights"""
+    def fit(self, X, y, sample_weight, **kwargs):
+        super(LinearRegressionWrapper, self).fit(X, y, **kwargs)
+
+    def predict(self, X):
+        return super(LinearRegressionWrapper, self).predict(X)[:, numpy.newaxis]
