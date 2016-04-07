@@ -207,6 +207,8 @@ def main():
 
     experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=True)
 
+    experiment_adaboost(X_train, Y_train, args, feature_names, splits)
+
     experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
     experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
@@ -262,6 +264,16 @@ def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, 
 
         if args.analyse_feature_importance:
             wrapped_model.print_feature_importances(feature_names)
+
+
+def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False):
+    model = MultivariateRegressionWrapper(sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression()))
+    cross_validate(X_train, Y_train, model, "AdaBoost(LinearRegression)", splits)
+
+    # refit and show feature importances
+    if args.analyse_feature_importance:
+        model.fit(X_train, Y_train)
+        model.print_feature_importances(feature_names)
 
 
 def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False):
