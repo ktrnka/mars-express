@@ -205,23 +205,16 @@ def main():
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, "LinearRegression", splits)
 
-    experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=True)
+    experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
 
-    experiment_adaboost(X_train, Y_train, args, feature_names, splits)
+    # experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
     experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
-    experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
+    # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
     if args.prediction_file != "-":
-        # retrain baseline model as a sanity check
-        baseline_model.fit(X_train, Y_train)
-
-        # retrain a model on the full data
-        model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=12))
-        model.fit(X_train, Y_train)
-
-        predict_test_data(model, scaler, args, Y_train, baseline_model=baseline_model)
+        predict_test_data(X_train, Y_train, scaler, args)
 
 
 def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False):
@@ -243,7 +236,7 @@ def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_par
 
 
 def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=False):
-    model = MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor())
+    model = MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor(max_features=18, n_estimators=50, learning_rate=0.3, max_depth=4, min_samples_leaf=66))
     cross_validate(X_train, Y_train, model, "GradientBoostingRegressor", splits)
 
     if args.analyse_hyperparameters and tune_params:
@@ -267,13 +260,21 @@ def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, 
 
 
 def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False):
-    model = MultivariateRegressionWrapper(sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression()))
+    model = MultivariateRegressionWrapper(sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression(), learning_rate=0.7))
     cross_validate(X_train, Y_train, model, "AdaBoost(LinearRegression)", splits)
 
-    # refit and show feature importances
-    if args.analyse_feature_importance:
+    if args.analyse_hyperparameters and tune_params:
+        ada_params = {
+            "learning_rate": scipy.stats.uniform(0.3, 1.),
+            "n_estimators": scipy.stats.randint(20, 100),
+            "loss": ["linear", "square", "exponential"]
+        }
+        model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression()), ada_params, scoring="mean_squared_error"))
+        cross_validate(X_train, Y_train, model, "RandomSearchCV(AdaBoost(LinearRegression))", splits)
+
+        print "Refitting to show hyperparams"
         model.fit(X_train, Y_train)
-        model.print_feature_importances(feature_names)
+        model.print_best_params()
 
 
 def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False):
@@ -304,7 +305,15 @@ def cross_validate(X_train, Y_train, model, model_name, splits):
     print "{}: {:.4f} +/- {:.4f}".format(model_name, scores.mean(), scores.std())
 
 
-def predict_test_data(model, scaler, args, Y_train, baseline_model=None):
+def predict_test_data(X_train, Y_train, scaler, args):
+    # retrain baseline model as a sanity check
+    baseline_model = sklearn.dummy.DummyRegressor("mean")
+    baseline_model.fit(X_train, Y_train)
+
+    # retrain a model on the full data
+    model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=12))
+    model.fit(X_train, Y_train)
+
     test_data = load_data(args.testing_dir)
     X_test, Y_test = separate_output(test_data)
     X_test = scaler.transform(X_test)

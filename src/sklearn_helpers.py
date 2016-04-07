@@ -106,7 +106,10 @@ class MultivariateRegressionWrapper(sklearn.base.BaseEstimator):
         print "Best hyperparameters for grid search inside of multivariate regression"
 
         for name, dist in self.get_best_param_distributions().iteritems():
-            print "\t{}: {:.2f} +/- {:.2f}".format(name, dist.mean(), dist.std())
+            try:
+                print "\t{}: {:.2f} +/- {:.2f}".format(name, dist.mean(), dist.std())
+            except TypeError:
+                print "\t{}: {}".format(name, collections.Counter(dist).most_common(1))
 
     def get_feature_importances(self, feature_names):
         feature_importances = collections.defaultdict(list)
