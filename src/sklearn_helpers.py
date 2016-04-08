@@ -1,6 +1,7 @@
 from __future__ import unicode_literals
 
 import math
+import numbers
 import sys
 import argparse
 from operator import itemgetter
@@ -11,7 +12,14 @@ import numpy
 import pandas
 import scipy.optimize
 import sklearn
-
+import sklearn.grid_search
+import sklearn.linear_model
+import keras.constraints
+import keras.layers.noise
+import keras.optimizers
+import keras.callbacks
+import keras.models
+import scipy.stats
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -170,9 +178,35 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
             scores = test.cv_validation_scores
             if score_transformer:
                 scores = score_transformer(scores)
-                print "Validation score {:.4f} +/- {:.4f}, Hyperparams {}".format(scores.mean(),
-                                                                                  scores.std(),
-                                                                                  test.parameters)
+            print "Validation score {:.4f} +/- {:.4f}, Hyperparams {}".format(scores.mean(),
+                                                                              scores.std(),
+                                                                              test.parameters)
+
+        print "Hyperparameter correlations with evaluation metric"
+        for param, correlation_r in self.correlate_hyperparameters(score_transformer=score_transformer):
+            print "{}: {:.4f}".format(param, correlation_r)
+
+    def correlate_hyperparameters(self, score_transformer=None):
+        param_scores = collections.defaultdict(list)
+        for test in self.grid_scores_:
+            scores = test.cv_validation_scores
+            if score_transformer:
+                scores = score_transformer(scores)
+
+            for name, value in test.parameters.iteritems():
+                if isinstance(value, numbers.Number):
+                    param_scores[name].append((value, scores.mean()))
+
+        param_correlations = collections.Counter()
+        for param_name, points in param_scores.iteritems():
+            points = numpy.asarray(points)
+            assert points.shape[1] == 2
+
+            pearson_r, pearson_p = scipy.stats.pearsonr(points[:, 0], points[:, 1])
+            param_correlations[param_name] = pearson_r
+
+        return param_correlations
+
 
 class LinearRegressionWrapper(sklearn.linear_model.LinearRegression):
     """Wrapper for LinearRegression that's compatible with GradientBoostingClassifier sample_weights"""
@@ -181,3 +215,109 @@ class LinearRegressionWrapper(sklearn.linear_model.LinearRegression):
 
     def predict(self, X):
         return super(LinearRegressionWrapper, self).predict(X)[:, numpy.newaxis]
+
+class NnRegressor(sklearn.base.BaseEstimator):
+    """Wrapper for Keras feed-forward neural network for classification to enable scikit-learn grid search"""
+    def __init__(self, hidden_layer_sizes=(100,), dropout=0.5, batch_spec=((400, 1024), (100, -1)), hidden_activation="relu", input_noise=0., use_maxout=False, use_maxnorm=False, learning_rate=0.001, verbose=0, init="he_uniform"):
+        self.hidden_layer_sizes = hidden_layer_sizes
+        self.dropout = dropout
+        self.batch_spec = batch_spec
+        self.hidden_activation = hidden_activation
+        self.input_noise = input_noise
+        self.use_maxout = use_maxout
+        self.use_maxnorm = use_maxnorm
+        self.learning_rate = learning_rate
+        self.verbose = verbose
+        self.loss = "mse"
+        self.init = init
+
+        if self.use_maxout:
+            self.use_maxnorm = True
+
+        self.model_ = None
+
+    def fit(self, X, y, **kwargs):
+        self.set_params(**kwargs)
+
+        if self.verbose >= 1:
+            print "Fitting input shape {}, output shape {}".format(X.shape, y.shape)
+
+        model = keras.models.Sequential()
+
+        first = True
+
+        if self.input_noise > 0:
+            model.add(keras.layers.noise.GaussianNoise(self.input_noise, input_shape=X.shape[1:]))
+
+        num_maxout_features = 2
+
+        dense_kwargs = {"init": self.init}
+        if self.use_maxnorm:
+            dense_kwargs["W_constraint"] = keras.constraints.maxnorm(2)
+
+        # hidden layers
+        for layer_size in self.hidden_layer_sizes:
+            if first:
+                if self.use_maxout:
+                    model.add(keras.layers.core.MaxoutDense(output_dim=layer_size / num_maxout_features, input_dim=X.shape[1], init=self.init, nb_feature=num_maxout_features))
+                else:
+                    model.add(keras.layers.core.Dense(output_dim=layer_size, input_dim=X.shape[1], **dense_kwargs))
+                    model.add(keras.layers.core.Activation(self.hidden_activation))
+                first = False
+            else:
+                if self.use_maxout:
+                    model.add(keras.layers.core.MaxoutDense(output_dim=layer_size / num_maxout_features, init=self.init, nb_feature=num_maxout_features))
+                else:
+                    model.add(keras.layers.core.Dense(output_dim=layer_size, **dense_kwargs))
+                    model.add(keras.layers.core.Activation(self.hidden_activation))
+            model.add(keras.layers.core.Dropout(self.dropout))
+
+        if first:
+            model.add(keras.layers.core.Dense(output_dim=y.shape[1], input_dim=X.shape[1], **dense_kwargs))
+        else:
+            model.add(keras.layers.core.Dense(output_dim=y.shape[1], **dense_kwargs))
+
+        optimizer = keras.optimizers.Adam(lr=self.learning_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-8)
+        model.compile(loss=self.loss, optimizer=optimizer)
+
+        # batches as per configuration
+        for num_iterations, batch_size in self.batch_spec:
+            fit_kwargs = {"verbose": self.verbose}
+
+            if batch_size < 0:
+                batch_size = X.shape[0]
+            elif batch_size > X.shape[0]:
+                print "Clipping batch size to input rows"
+                batch_size = X.shape[0]
+
+            if num_iterations > 0:
+                model.fit(X, y, nb_epoch=num_iterations, batch_size=batch_size, **fit_kwargs)
+
+        self.model_ = model
+        return self
+
+    def count_params(self):
+        return self.model_.count_params()
+
+    def predict(self, X):
+        # sklearn VotingClassifier requires this to be 1-dimensional
+        return self.model_.predict(X)
+
+    # def score(self, X, y):
+    #     return sklearn.metrics.accuracy_score(y, self.predict(X))
+
+    @staticmethod
+    def generate_batch_params(mini_batch_iter, total_epochs=200, mini_batch_size=1024):
+        for mini_batch_epochs in mini_batch_iter:
+            assert mini_batch_epochs <= total_epochs
+            yield ((mini_batch_epochs, mini_batch_size), (total_epochs - mini_batch_epochs, -1))
+
+    @staticmethod
+    def compute_num_params(X, layer_spec):
+        layers = [X.shape[1]] + list(layer_spec) + [1]
+
+        num_params = 0
+        for i in xrange(1, len(layers)):
+            num_params += (layers[i - 1] + 1) * layers[i]
+
+        return num_params

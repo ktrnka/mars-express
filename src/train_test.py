@@ -111,21 +111,30 @@ def load_data(data_dir, resample_interval=None):
     # as far as I can tell this doesn't make a difference
     longterm_data = longterm_data.resample("1H").mean().interpolate().fillna(method="backfill")
 
+    # time-lagged version
+    add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, data_type=numpy.int64)
+    add_lag_feature(longterm_data, "eclipseduration_min", 5 * 24, data_type=numpy.int64)
+
+
     # events
     event_data = load_series(find_files(data_dir, "evtf"))
-    merge_umbra_penumbra(data, event_data)
-    fill_events(data, get_event_ranges(event_data, "MRB_/_RANGE_06000KM"), "IN_MRB_/_RANGE_06000KM")
-    fill_events(data, get_event_ranges(event_data, "MSL_/_RANGE_06000KM"), "IN_MSL_/_RANGE_06000KM")
+    # merge_umbra_penumbra(data, event_data)
+    # fill_events(data, get_event_ranges(event_data, "MAR_UMBRA"), "IN_MAR_UMBRA")
+    # fill_events(data, get_event_ranges(event_data, "MRB_/_RANGE_06000KM"), "IN_MRB_/_RANGE_06000KM")
+    # fill_events(data, get_event_ranges(event_data, "MSL_/_RANGE_06000KM"), "IN_MSL_/_RANGE_06000KM")
 
     event_data.drop(["description"], axis=1, inplace=True)
     event_data["event_counts"] = 1
     event_data = event_data.resample("1H").count().reindex(data.index, method="nearest")
+    add_lag_feature(event_data, "event_counts", 2, data_type=numpy.int64)
+    add_lag_feature(event_data, "event_counts", 5, data_type=numpy.int64)
 
     dmop_data = load_series(find_files(data_dir, "dmop"))
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["dmop_counts"] = 1
     dmop_data = dmop_data.resample("1H").count().reindex(data.index, method="nearest")
-    add_lag_feature(dmop_data, "dmop_counts", 24 * 7)
+    add_lag_feature(dmop_data, "dmop_counts", 2, data_type=numpy.int64)
+    add_lag_feature(dmop_data, "dmop_counts", 5, data_type=numpy.int64)
 
     # resample saaf to 30 minute windows before reindexing to smooth it out a bit
     saaf_data = saaf_data.resample("30Min").mean().reindex(data.index, method="nearest")
@@ -133,35 +142,34 @@ def load_data(data_dir, resample_interval=None):
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
     data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data], axis=1)
+    # print data[data.NPWD2882.isnull()].NPWD2882
+
+    # TODO: Delete any data with missing power info rather than interpolate that (training only, not testing)
 
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
 
-    # # replace some features with cut versions
-    # for feature in ["sz", "sy", "sx", "dmop_counts_rolling_7d", "dmop_counts", "event_counts"]:
-    #     data[feature] = pandas.cut(data[feature], 20, labels=False)
-
-    for feature in ["sz", "sy", "sx", "sa"]:
+    data.drop(["sx", "sa"], axis=1, inplace=True)
+    for feature in ["sz", "sy"]:
         data["sin_{}".format(feature)] = numpy.sin(data[feature] / 360)
         data["cos_{}".format(feature)] = numpy.cos(data[feature] / 360)
 
-    # derived angle features
-    # for feature in ["sz", "sy"]:
-    #     for window in [2, 6, 12]:
-    #         data[feature + "_rolling_{}h".format(window)] = data[feature].rolling(window=window).mean().fillna(method="pad")
+    print "Before fillna global:"
+    data.info()
 
-    # derived long-term features
-    # for feature in ["eclipseduration_min", "earthmars_km", "sunmars_km"]:
-    #     for window in [24 * 7, 24 * 2, 24 * 14]:
-    #         add_lag_feature(data, feature, window)
+    print data.head(100)
 
-    # add_lag_feature(data, "eclipseduration_min", 24 * 14)
-    # add_lag_feature(data, "sunmars_km", 24 * 14, drop=True)
+    # fix any remaining NaN
+    data = data.interpolate().fillna(data.mean())
 
-    return data.fillna(data.mean())
+    return data
 
 
-def add_lag_feature(data, feature, window, drop=False):
-    data[feature + "_rolling_{}d".format(window / 24)] = data[feature].rolling(window=window).mean().fillna(method="pad")
+def add_lag_feature(data, feature, window, drop=False, data_type=None):
+    name = feature + "_rolling_{}h".format(window)
+    data[name] = data[feature].rolling(window=window).mean().fillna(method="backfill")
+
+    if data_type:
+        data[name] = data[name].astype(data_type)
 
     if drop:
         data.drop([feature], axis=1, inplace=True)
@@ -176,6 +184,28 @@ def compute_upper_bounds(data):
 
         rms = ((data - upsampled_data) ** 2).mean().mean() ** 0.5
         print "RMS with {} approximation: {:.3f}".format(interval, rms)
+
+
+def experiment_neural_network(X_train, Y_train, args, splits, tune_params):
+    Y_train = Y_train.values
+    model = sklearn_helpers.NnRegressor(batch_spec=((1500, -1),), learning_rate=0.01, dropout=0.6, hidden_activation="sigmoid", init="glorot_uniform")
+    cross_validate(X_train, Y_train, model, "NnRegressor", splits)
+
+    if args.analyse_hyperparameters and tune_params:
+        print "Running hyperparam opt"
+        nn_hyperparams = {
+            "input_noise": scipy.stats.uniform(0, 0.1),
+            "dropout": [0.5],
+            "learning_rate": [0.01, 0.005],
+            "batch_spec": [((1000, -1),)],
+            "hidden_activation": ["sigmoid"]
+        }
+        model = sklearn_helpers.NnRegressor(batch_spec=((1000, -1),), init="glorot_uniform")
+        wrapped_model = sklearn.grid_search.RandomizedSearchCV(model, nn_hyperparams, n_iter=10, n_jobs=1, scoring="mean_squared_error")
+        # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
+
+        wrapped_model.fit(X_train, Y_train)
+        print_tuning_scores(wrapped_model, reverse=True, score_transformer=mse_to_rms)
 
 
 def main():
@@ -207,9 +237,14 @@ def main():
 
     experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
 
-    # experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=True)
+    # model = sklearn.linear_model.Lars()
+    # cross_validate(X_train, Y_train, model, "Lars", splits)
 
-    experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
+    experiment_neural_network(X_train, Y_train, args, splits, tune_params=True)
+
+    # experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False)
+
+    # experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
     # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
@@ -260,7 +295,7 @@ def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, 
 
 
 def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False):
-    model = MultivariateRegressionWrapper(sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression(), learning_rate=0.7))
+    model = MultivariateRegressionWrapper(sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression(), learning_rate=0.7, loss="square"))
     cross_validate(X_train, Y_train, model, "AdaBoost(LinearRegression)", splits)
 
     if args.analyse_hyperparameters and tune_params:
@@ -311,8 +346,9 @@ def predict_test_data(X_train, Y_train, scaler, args):
     baseline_model.fit(X_train, Y_train)
 
     # retrain a model on the full data
-    model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=12))
-    model.fit(X_train, Y_train)
+    model = sklearn_helpers.NnRegressor(batch_spec=((1500, -1),), learning_rate=0.01, dropout=0.6, hidden_activation="sigmoid", init="glorot_uniform")
+    # model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=12, n_estimators=30))
+    model.fit(X_train, Y_train.values)
 
     test_data = load_data(args.testing_dir)
     X_test, Y_test = separate_output(test_data)
