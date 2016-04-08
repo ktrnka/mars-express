@@ -3,8 +3,10 @@ import sys
 import argparse
 import unittest
 # import nose.util
+import numpy
 
 import pandas
+from src import sklearn_helpers
 from src.train_test import fill_events
 
 
@@ -18,6 +20,32 @@ def main():
 if __name__ == "__main__":
     sys.exit(main())
 
+def _test_multivariate_regression(model, X, Y):
+    model.fit(X, Y)
+    return (model.predict(Y) - Y).mean().mean()
+
+
+def build_data(n):
+    X = numpy.asarray(range(n))
+
+    X = numpy.vstack((X, X + 1, X + 2, X + 3)).transpose()
+
+    return X[:,:2], X[:,2:]
+
+
+class SklearnHelperTests(unittest.TestCase):
+    def test_nn_regression(self):
+        X, Y = build_data(100)
+        self.assertListEqual([100, 2], list(X.shape))
+        self.assertListEqual([100, 2], list(Y.shape))
+
+        model = sklearn_helpers.NnRegressor(learning_rate=0.01, batch_spec=((1000, -1),), dropout=0., hidden_layer_sizes=(3,))
+        model.fit(X, Y)
+
+        Y_pred = model.predict(X)
+        self.assertEqual(Y.shape, Y_pred.shape)
+        error = ((Y - Y_pred) ** 2).mean().mean()
+        self.assertLess(error, 1.)
 
 class UmbraTests(unittest.TestCase):
     def _make_time(self, start_time, duration_minutes=30):
