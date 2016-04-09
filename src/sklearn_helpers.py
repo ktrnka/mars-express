@@ -182,30 +182,64 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
                                                                               scores.std(),
                                                                               test.parameters)
 
-        print "Hyperparameter correlations with evaluation metric"
-        for param, correlation_r in self.correlate_hyperparameters(score_transformer=score_transformer):
-            print "{}: {:.4f}".format(param, correlation_r)
+        print "Linear hyperparameter correlations with evaluation metric"
+        for param, correlation_r in self.correlate_hyperparameters(score_transformer=score_transformer).most_common():
+            print "\t{}: r = {:.4f}".format(param, correlation_r)
 
-    def correlate_hyperparameters(self, score_transformer=None):
-        param_scores = collections.defaultdict(list)
-        for test in self.grid_scores_:
-            scores = test.cv_validation_scores
-            if score_transformer:
-                scores = score_transformer(scores)
+        print "Folded hyperparameter correlations with evaluation metric"
+        for param, correlation_r in self.correlate_hyperparameters(score_transformer=score_transformer, fold_over_max=True).most_common():
+            print "\t{}: r = {:.4f}".format(param, correlation_r)
 
-            for name, value in test.parameters.iteritems():
-                if isinstance(value, numbers.Number):
-                    param_scores[name].append((value, scores.mean()))
+    def correlate_hyperparameters(self, score_transformer=None, fold_over_max=False):
+        param_scores = self._get_independent_scores(score_transformer)
 
         param_correlations = collections.Counter()
         for param_name, points in param_scores.iteritems():
             points = numpy.asarray(points)
             assert points.shape[1] == 2
 
+            if fold_over_max:
+                _, max_score_index = numpy.argmax(points, axis=0)
+                points[:, 0] = numpy.abs(points[:, 0] - points[max_score_index, 0])
+
             pearson_r, pearson_p = scipy.stats.pearsonr(points[:, 0], points[:, 1])
             param_correlations[param_name] = pearson_r
 
         return param_correlations
+
+    def _get_independent_scores(self, score_transformer):
+        param_scores = collections.defaultdict(list)
+        param_counts = collections.defaultdict(collections.Counter)
+        for test in self.grid_scores_:
+            scores = test.cv_validation_scores
+            if score_transformer:
+                scores = score_transformer(scores)
+
+            for name, value in test.parameters.iteritems():
+                param_counts[name][value] += 1
+                if isinstance(value, numbers.Number):
+                    param_scores[name].append((value, scores.mean()))
+
+        # remove parameter values that don't vary
+        for param, value_distribution in param_counts.iteritems():
+            if len(value_distribution) == 1 and param in param_scores:
+                del param_scores[param]
+
+        return param_scores
+
+    @staticmethod
+    def uniform(start, end):
+        """Helper to make a continuous or discrete uniform distribution depending on the input types"""
+        if all(isinstance(x, int) for x in [start, end]):
+            return scipy.stats.randint(start, end)
+        else:
+            return scipy.stats.uniform(start, end - start)
+
+    @staticmethod
+    def exponential(start, end, num_samples=100):
+        """Helper to make a log-linear distribution"""
+        return numpy.exp(numpy.linspace(math.log(start), math.log(end), num=num_samples))
+
 
 
 class LinearRegressionWrapper(sklearn.linear_model.LinearRegression):
