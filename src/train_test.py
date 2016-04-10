@@ -201,6 +201,9 @@ def compute_upper_bounds(data):
         rms = ((data - upsampled_data) ** 2).mean().mean() ** 0.5
         print "RMS with {} approximation: {:.3f}".format(interval, rms)
 
+def make_nn():
+    """Make a neural network model with reasonable default args"""
+    return sklearn_helpers.NnRegressor(batch_spec=((500, 200),), learning_rate=0.008, dropout=0.5, hidden_activation="elu", init="glorot_uniform", input_noise=0.02, l2=0.001)
 
 @sklearn_helpers.Timed
 def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_pca=False):
@@ -212,7 +215,7 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_p
         X_train = sklearn.decomposition.PCA(n_components=0.99, whiten=True).fit_transform(X_train)
         print "PCA reduced number of features from {} to {}".format(original_shape[1], X_train.shape[1])
 
-    model = sklearn_helpers.NnRegressor(batch_spec=((500, -1),), learning_rate=0.008, dropout=0.5, hidden_activation="elu", init="glorot_uniform", input_noise=0.01, l2=0.01)
+    model = make_nn()
     cross_validate(X_train, Y_train, model, "NnRegressor", splits)
 
     if args.analyse_hyperparameters and tune_params:
@@ -225,7 +228,7 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_p
             "batch_spec": [((500, -1),), ((500, 200),)],
             "hidden_activation": ["sigmoid", "elu", "relu"]
         }
-        model = sklearn_helpers.NnRegressor(batch_spec=((1000, -1),), init="glorot_uniform")
+        model = make_nn()
         wrapped_model = sklearn_helpers.RandomizedSearchCV(model, nn_hyperparams, n_iter=20, n_jobs=1, scoring="mean_squared_error")
         # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
 
@@ -320,18 +323,9 @@ def main():
 
     experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
 
-    # gaussian process (first test, params from their example)
-    # model = sklearn.gaussian_process.GaussianProcess(theta0=1e-2, thetaL=1e-4, thetaU=1e-1)
-    # cross_validate(X_train, Y_train, model, "GaussianProcess", splits)
-
-    # model = sklearn.linear_model.Lars()
-    # cross_validate(X_train, Y_train, model, "Lars", splits)
-
     experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
-    experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
-
-    experiment_neural_network(X_train, Y_train, args, splits, tune_params=True, use_pca=True)
+    experiment_neural_network(X_train, Y_train, args, splits, tune_params=True)
 
     # experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
@@ -341,9 +335,13 @@ def main():
         predict_test_data(X_train, Y_train, scaler, args, common_ftl_cols)
 
 
+def make_blr():
+    """Make a bagged linear regression model with reasonable default args"""
+    return MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=30, n_estimators=30))
+
 @sklearn_helpers.Timed
 def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False):
-    model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=30, n_estimators=30))
+    model = make_blr()
     cross_validate(X_train, Y_train, model, "Bagging(LinearRegression)", splits)
 
     if args.analyse_hyperparameters and tune_params:
@@ -401,6 +399,9 @@ def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_para
         model.fit(X_train, Y_train)
         model.print_best_params()
 
+def make_rf():
+    """Make a random forest model with reasonable default args"""
+    return sklearn.ensemble.RandomForestRegressor(20, min_samples_leaf=30, max_depth=15, max_features=10)
 
 @sklearn_helpers.Timed
 def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False):
@@ -437,8 +438,7 @@ def predict_test_data(X_train, Y_train, scaler, args, common_ftl_cols):
     baseline_model.fit(X_train, Y_train)
 
     # retrain a model on the full data
-    model = sklearn.ensemble.RandomForestRegressor(20, min_samples_leaf=30, max_depth=15, max_features=10)
-    # model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=30, n_estimators=30))
+    model = make_nn()
     model.fit(X_train, Y_train.values)
 
     test_data, _ = load_data(args.testing_dir, ftl_cols=common_ftl_cols)
