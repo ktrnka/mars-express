@@ -8,6 +8,8 @@ from operator import itemgetter
 
 import collections
 
+import time
+
 import numpy
 import pandas
 import scipy.optimize
@@ -20,6 +22,7 @@ import keras.optimizers
 import keras.callbacks
 import keras.models
 import scipy.stats
+import keras.layers.advanced_activations
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -183,27 +186,37 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
                                                                               test.parameters)
 
         print "Linear hyperparameter correlations with evaluation metric"
-        for param, correlation_r in self.correlate_hyperparameters(score_transformer=score_transformer).most_common():
-            print "\t{}: r = {:.4f}".format(param, correlation_r)
+        for param, (stat_name, stat, pval) in self.correlate_hyperparameters(score_transformer=score_transformer).iteritems():
+            print "\t{}: {} = {:.4f}, p = {:.4f}".format(param, stat_name, stat, pval)
 
-        print "Folded hyperparameter correlations with evaluation metric"
-        for param, correlation_r in self.correlate_hyperparameters(score_transformer=score_transformer, fold_over_max=True).most_common():
-            print "\t{}: r = {:.4f}".format(param, correlation_r)
+        # print "Folded hyperparameter correlations with evaluation metric"
+        # for param, (stat_name, stat, pval) in self.correlate_hyperparameters(score_transformer=score_transformer, fold_over_max=True).iteritems():
+        #     print "\t{}: {} = {:.4f}, p = {:.4f}".format(param, stat_name, stat, pval)
 
     def correlate_hyperparameters(self, score_transformer=None, fold_over_max=False):
         param_scores = self._get_independent_scores(score_transformer)
 
-        param_correlations = collections.Counter()
+        param_correlations = dict()
         for param_name, points in param_scores.iteritems():
-            points = numpy.asarray(points)
-            assert points.shape[1] == 2
+            if all(isinstance(x, numbers.Number) for x, _ in points):
+                # numeric params path: use Pearson
+                points = numpy.asarray(points)
+                assert points.shape[1] == 2
 
-            if fold_over_max:
-                _, max_score_index = numpy.argmax(points, axis=0)
-                points[:, 0] = numpy.abs(points[:, 0] - points[max_score_index, 0])
+                if fold_over_max:
+                    _, max_score_index = numpy.argmax(points, axis=0)
+                    points[:, 0] = numpy.abs(points[:, 0] - points[max_score_index, 0])
 
-            pearson_r, pearson_p = scipy.stats.pearsonr(points[:, 0], points[:, 1])
-            param_correlations[param_name] = pearson_r
+                pearson_r, pearson_p = scipy.stats.pearsonr(points[:, 0], points[:, 1])
+                param_correlations[param_name] = ("Pearson r", pearson_r, pearson_p)
+            else:
+                # non-numeric path, run anova or something
+                param_vals = collections.defaultdict(list)
+                for param_val, score in points:
+                    param_vals[param_val].append(score)
+
+                anova_f, anova_p = scipy.stats.f_oneway(*[numpy.asarray(v) for v in param_vals.itervalues()])
+                param_correlations[param_name] = ("Anova f", anova_f, anova_p)
 
         return param_correlations
 
@@ -217,8 +230,7 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
 
             for name, value in test.parameters.iteritems():
                 param_counts[name][value] += 1
-                if isinstance(value, numbers.Number):
-                    param_scores[name].append((value, scores.mean()))
+                param_scores[name].append((value, scores.mean()))
 
         # remove parameter values that don't vary
         for param, value_distribution in param_counts.iteritems():
@@ -252,7 +264,7 @@ class LinearRegressionWrapper(sklearn.linear_model.LinearRegression):
 
 class NnRegressor(sklearn.base.BaseEstimator):
     """Wrapper for Keras feed-forward neural network for classification to enable scikit-learn grid search"""
-    def __init__(self, hidden_layer_sizes=(100,), dropout=0.5, batch_spec=((400, 1024), (100, -1)), hidden_activation="relu", input_noise=0., use_maxout=False, use_maxnorm=False, learning_rate=0.001, verbose=0, init="he_uniform"):
+    def __init__(self, hidden_layer_sizes=(100,), dropout=0.5, batch_spec=((400, 1024), (100, -1)), hidden_activation="relu", input_noise=0., use_maxout=False, use_maxnorm=False, learning_rate=0.001, verbose=0, init="he_uniform", l2=None):
         self.hidden_layer_sizes = hidden_layer_sizes
         self.dropout = dropout
         self.batch_spec = batch_spec
@@ -264,11 +276,18 @@ class NnRegressor(sklearn.base.BaseEstimator):
         self.verbose = verbose
         self.loss = "mse"
         self.init = init
+        self.l2 = l2
 
         if self.use_maxout:
             self.use_maxnorm = True
 
         self.model_ = None
+
+    def _get_activation(self):
+        if self.hidden_activation == "elu":
+            return keras.layers.advanced_activations.ELU()
+        else:
+            return keras.layers.core.Activation(self.hidden_activation)
 
     def fit(self, X, y, **kwargs):
         self.set_params(**kwargs)
@@ -288,6 +307,9 @@ class NnRegressor(sklearn.base.BaseEstimator):
         dense_kwargs = {"init": self.init}
         if self.use_maxnorm:
             dense_kwargs["W_constraint"] = keras.constraints.maxnorm(2)
+        if self.l2:
+            dense_kwargs["W_regularizer"] = keras.regularizers.l2(self.l2)
+
 
         # hidden layers
         for layer_size in self.hidden_layer_sizes:
@@ -296,14 +318,14 @@ class NnRegressor(sklearn.base.BaseEstimator):
                     model.add(keras.layers.core.MaxoutDense(output_dim=layer_size / num_maxout_features, input_dim=X.shape[1], init=self.init, nb_feature=num_maxout_features))
                 else:
                     model.add(keras.layers.core.Dense(output_dim=layer_size, input_dim=X.shape[1], **dense_kwargs))
-                    model.add(keras.layers.core.Activation(self.hidden_activation))
+                    model.add(self._get_activation())
                 first = False
             else:
                 if self.use_maxout:
                     model.add(keras.layers.core.MaxoutDense(output_dim=layer_size / num_maxout_features, init=self.init, nb_feature=num_maxout_features))
                 else:
                     model.add(keras.layers.core.Dense(output_dim=layer_size, **dense_kwargs))
-                    model.add(keras.layers.core.Activation(self.hidden_activation))
+                    model.add(self._get_activation())
             model.add(keras.layers.core.Dropout(self.dropout))
 
         if first:
@@ -355,3 +377,36 @@ class NnRegressor(sklearn.base.BaseEstimator):
             num_params += (layers[i - 1] + 1) * layers[i]
 
         return num_params
+
+
+class ExtraRobustScaler(sklearn.preprocessing.RobustScaler):
+    def transform(self, X, y=None):
+        X = super(ExtraRobustScaler, self).transform(X, y)
+
+        # try to ensure that -1 to 1 is a nice linear range and squash a bit beyond that
+        X[X > 5] = 5
+        X[X < -5] = -5
+
+        return X
+
+def number_string(number, singular_unit, plural_unit, format_string="{} {}"):
+    return format_string.format(number, singular_unit if number == 1 else plural_unit)
+
+
+class Timed(object):
+    """Decorator for timing how long a function takes"""
+    def __init__(self, func):
+        self.func = func
+
+    def __call__(self, *args, **kwargs):
+        start_time = time.time()
+        self.func(*args, **kwargs)
+        elapsed = time.time() - start_time
+
+        hours, seconds = divmod(elapsed, 60 * 60)
+        minutes = seconds / 60.
+        time_string = number_string(minutes, "minute", "minutes", format_string="{:.1f} {}")
+        if hours:
+            time_string = ", ".join((number_string(hours, "hour", "hours"), time_string))
+
+        print "{} took {}".format(self.func.__name__, time_string)

@@ -17,6 +17,7 @@ import sklearn.ensemble
 import sklearn.grid_search
 import sklearn.linear_model
 import sklearn.preprocessing
+import sklearn.decomposition
 import sklearn.svm
 import sklearn.gaussian_process
 from src import sklearn_helpers
@@ -90,7 +91,7 @@ def load_series(files, add_file_number=False, resample_interval=None, date_cols=
     return pandas.concat(data)
 
 
-def load_data(data_dir, resample_interval=None):
+def load_data(data_dir, resample_interval=None, filter_null_power=False, ftl_cols=None):
     # load the base power data
     data = load_series(find_files(data_dir, "power"), add_file_number=True, resample_interval=resample_interval)
 
@@ -115,13 +116,14 @@ def load_data(data_dir, resample_interval=None):
     add_lag_feature(event_sampled_df, "flagcomms", 12, "1h")
     add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
 
-    for ftl_type, count in ftl_data["type"].value_counts().iteritems():
-        if count > 100:
-            dest_name = "FTL_" + ftl_type
-            event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
-            add_lag_feature(event_sampled_df, dest_name, 12, "1h")
-            add_lag_feature(event_sampled_df, dest_name, 24, "2h")
-
+    # select columns or take preselected ones
+    if not ftl_cols:
+        ftl_cols = [name for name, count in ftl_data["type"].value_counts().iteritems() if count > 100]
+    for ftl_type in ftl_cols:
+        dest_name = "FTL_" + ftl_type
+        event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
+        add_lag_feature(event_sampled_df, dest_name, 12, "1h")
+        add_lag_feature(event_sampled_df, dest_name, 24, "2h")
 
     # events
     event_data = load_series(find_files(data_dir, "evtf"))
@@ -151,20 +153,21 @@ def load_data(data_dir, resample_interval=None):
 
     data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest")], axis=1)
 
-    previous_size = data.shape[0]
-    data = data[data.NPWD2532.notnull()]
-    if data.shape[0] < previous_size:
-        print "Reduced data from {:,} rows to {:,}".format(previous_size, data.shape[0])
+    if filter_null_power:
+        previous_size = data.shape[0]
+        data = data[data.NPWD2532.notnull()]
+        if data.shape[0] < previous_size:
+            print "Reduced data from {:,} rows to {:,}".format(previous_size, data.shape[0])
 
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
 
-    data.drop(["sx", "sa"], axis=1, inplace=True)
-    for feature in ["sz", "sy"]:
+    data.drop(["sx", "sa", "sy"], axis=1, inplace=True)
+    for feature in ["sz"]:
         data["sin_{}".format(feature)] = numpy.sin(data[feature] / 360)
         data["cos_{}".format(feature)] = numpy.cos(data[feature] / 360)
 
     # experiments on 7-day data suggest that this might be useful
-    data["sunmars_km * days_in_space"] = data["sunmars_km"] * data["days_in_space"]
+    # data["sunmars_km * days_in_space"] = data["sunmars_km"] * data["days_in_space"]
 
     # print "Before fillna global:"
     # data.info()
@@ -174,7 +177,7 @@ def load_data(data_dir, resample_interval=None):
     # fix any remaining NaN
     data = data.interpolate().fillna(data.mean())
 
-    return data
+    return data, ftl_cols
 
 
 def add_lag_feature(data, feature, window, time_suffix, drop=False, data_type=None):
@@ -199,22 +202,31 @@ def compute_upper_bounds(data):
         print "RMS with {} approximation: {:.3f}".format(interval, rms)
 
 
-def experiment_neural_network(X_train, Y_train, args, splits, tune_params):
+@sklearn_helpers.Timed
+def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_pca=False):
     Y_train = Y_train.values
-    model = sklearn_helpers.NnRegressor(batch_spec=((1500, -1),), learning_rate=0.01, dropout=0.6, hidden_activation="sigmoid", init="glorot_uniform")
+
+    # PCA
+    if use_pca:
+        original_shape = X_train.shape
+        X_train = sklearn.decomposition.PCA(n_components=0.99, whiten=True).fit_transform(X_train)
+        print "PCA reduced number of features from {} to {}".format(original_shape[1], X_train.shape[1])
+
+    model = sklearn_helpers.NnRegressor(batch_spec=((500, -1),), learning_rate=0.008, dropout=0.5, hidden_activation="elu", init="glorot_uniform", input_noise=0.01, l2=0.01)
     cross_validate(X_train, Y_train, model, "NnRegressor", splits)
 
     if args.analyse_hyperparameters and tune_params:
         print "Running hyperparam opt"
         nn_hyperparams = {
-            "input_noise": sklearn_helpers.RandomizedSearchCV.uniform(0., 0.1),
-            "dropout": [0.5],
+            "l2": sklearn_helpers.RandomizedSearchCV.exponential(0.1, 0.001),
+            "input_noise": sklearn_helpers.RandomizedSearchCV.uniform(0., 0.05),
+            "dropout": [0.4, 0.5, 0.6],
             "learning_rate": sklearn_helpers.RandomizedSearchCV.exponential(0.01, 0.001),
-            "batch_spec": [((1000, -1),)],
-            "hidden_activation": ["sigmoid"]
+            "batch_spec": [((500, -1),), ((500, 200),)],
+            "hidden_activation": ["sigmoid", "elu", "relu"]
         }
         model = sklearn_helpers.NnRegressor(batch_spec=((1000, -1),), init="glorot_uniform")
-        wrapped_model = sklearn_helpers.RandomizedSearchCV(model, nn_hyperparams, n_iter=10, n_jobs=1, scoring="mean_squared_error")
+        wrapped_model = sklearn_helpers.RandomizedSearchCV(model, nn_hyperparams, n_iter=20, n_jobs=1, scoring="mean_squared_error")
         # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
 
         wrapped_model.fit(X_train, Y_train)
@@ -261,16 +273,31 @@ def experiment_pairwise_features(X_train, Y_train, splits):
         print "\t{}: {:.4f}".format(feature, mse)
 
 
+def verify_data(train_df, test_df, filename):
+    # scale both input and output
+    train = sklearn.preprocessing.RobustScaler().fit_transform(train_df)
+    test = sklearn.preprocessing.StandardScaler().fit_transform(test_df)
+
+    # find inputs with values over 10x IQR from median
+    train_deviants = numpy.abs(train) > 10
+    train_deviant_rows = train_deviants.sum(axis=1) > 0
+
+    deviant_df = pandas.DataFrame(numpy.hstack([train[train_deviant_rows], test[train_deviant_rows]]), columns=list(train_df.columns) + list(test_df.columns))
+    deviant_df.to_csv(filename)
+    print "Wrote {} deviant training rows to {}".format(deviant_df.shape[0], filename)
+
+
 def main():
     args = parse_args()
 
-    train_data = load_data(args.training_dir, resample_interval=args.resample)
+    train_data, common_ftl_cols = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     # cross validation by year
     splits = sklearn.cross_validation.LeaveOneLabelOut(train_data["file_number"])
 
     # just use the biggest one for now
     X_train, Y_train = separate_output(train_data)
+    verify_data(X_train, Y_train, "training_deviants.csv")
 
     if args.extra_analysis:
         X_train.info()
@@ -280,7 +307,7 @@ def main():
     if args.feature_pairs:
         experiment_pairwise_features(X_train, Y_train, splits)
 
-    scaler = sklearn.preprocessing.RobustScaler()
+    scaler = sklearn_helpers.ExtraRobustScaler()
     feature_names = X_train.columns
     X_train = scaler.fit_transform(X_train)
 
@@ -304,14 +331,17 @@ def main():
 
     experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
+    experiment_neural_network(X_train, Y_train, args, splits, tune_params=True, use_pca=True)
+
     # experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
     # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
     if args.prediction_file != "-":
-        predict_test_data(X_train, Y_train, scaler, args)
+        predict_test_data(X_train, Y_train, scaler, args, common_ftl_cols)
 
 
+@sklearn_helpers.Timed
 def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False):
     model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=30, n_estimators=30))
     cross_validate(X_train, Y_train, model, "Bagging(LinearRegression)", splits)
@@ -330,6 +360,7 @@ def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_par
         model.print_best_params()
 
 
+@sklearn_helpers.Timed
 def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=False):
     model = MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor(max_features=18, n_estimators=50, learning_rate=0.3, max_depth=4, min_samples_leaf=66))
     cross_validate(X_train, Y_train, model, "GradientBoostingRegressor", splits)
@@ -371,9 +402,10 @@ def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_para
         model.print_best_params()
 
 
+@sklearn_helpers.Timed
 def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False):
     # plain model
-    model = sklearn.ensemble.RandomForestRegressor(80, min_samples_leaf=30, max_depth=15, max_features=35)
+    model = sklearn.ensemble.RandomForestRegressor(20, min_samples_leaf=30, max_depth=15, max_features=10)
     cross_validate(X_train, Y_train, model, "RandomForestRegressor", splits)
 
     if args.analyse_hyperparameters and tune_params:
@@ -399,35 +431,52 @@ def cross_validate(X_train, Y_train, model, model_name, splits):
     print "{}: {:.4f} +/- {:.4f}".format(model_name, scores.mean(), scores.std())
 
 
-def predict_test_data(X_train, Y_train, scaler, args):
+def predict_test_data(X_train, Y_train, scaler, args, common_ftl_cols):
     # retrain baseline model as a sanity check
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     baseline_model.fit(X_train, Y_train)
 
     # retrain a model on the full data
-    model = sklearn_helpers.NnRegressor(batch_spec=((1500, -1),), learning_rate=0.01, dropout=0.6, hidden_activation="sigmoid", init="glorot_uniform")
-    # model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=12, n_estimators=30))
+    model = sklearn.ensemble.RandomForestRegressor(20, min_samples_leaf=30, max_depth=15, max_features=10)
+    # model = MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=30, n_estimators=30))
     model.fit(X_train, Y_train.values)
 
-    test_data = load_data(args.testing_dir)
+    test_data, _ = load_data(args.testing_dir, ftl_cols=common_ftl_cols)
     X_test, Y_test = separate_output(test_data)
     X_test = scaler.transform(X_test)
 
     test_data[Y_train.columns] = model.predict(X_test)
 
-    if baseline_model:
-        baseline_predictions = baseline_model.predict(X_test)
-        predictions = model.predict(X_test)
-
-        deltas = numpy.abs(predictions - baseline_predictions) / numpy.abs(baseline_predictions)
-        mean_delta = deltas.mean().mean()
-        print "Average percent change from baseline predictions: {:.2f}%".format(100. * mean_delta)
-
-        assert mean_delta < 1
+    verify_predictions(X_test, baseline_model, model)
 
     # redo the index as unix timestamp
     test_data.index = test_data.index.astype(numpy.int64) / 10 ** 6
     test_data[Y_test.columns].to_csv(args.prediction_file, index_label="ut_ms")
+
+
+def verify_predictions(X_test, baseline_model, model):
+    baseline_predictions = baseline_model.predict(X_test)
+    predictions = model.predict(X_test)
+
+    deltas = numpy.abs(predictions - baseline_predictions) / numpy.abs(baseline_predictions)
+    per_row = deltas.mean()
+
+    unusual_rows = ~(per_row < 5)
+    unusual_count = unusual_rows.sum()
+    if unusual_count > 0:
+        print "{:.1f}% ({:,} / {:,}) of rows have unusual predictions:".format(100. * unusual_count / predictions.shape[0], unusual_count, predictions.shape[0])
+
+        unusual_inputs = X_test[unusual_rows].reshape(-1, X_test.shape[1])
+        unusual_outputs = predictions[unusual_rows].reshape(-1, predictions.shape[1])
+
+        for i in xrange(unusual_inputs.shape[0]):
+            print "Input: ", unusual_inputs[i]
+            print "Output: ", unusual_outputs[i]
+
+    overall_delta = per_row.mean()
+    print "Average percent change from baseline predictions: {:.2f}%".format(100. * overall_delta)
+
+    assert overall_delta < 2
 
 
 def separate_output(dataframe, num_outputs=None):
