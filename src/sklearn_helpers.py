@@ -18,6 +18,7 @@ import sklearn.grid_search
 import sklearn.linear_model
 import keras.constraints
 import keras.layers.noise
+import keras.layers.normalization
 import keras.optimizers
 import keras.callbacks
 import keras.models
@@ -264,8 +265,11 @@ class LinearRegressionWrapper(sklearn.linear_model.LinearRegression):
 
 class NnRegressor(sklearn.base.BaseEstimator):
     """Wrapper for Keras feed-forward neural network for classification to enable scikit-learn grid search"""
-    def __init__(self, hidden_layer_sizes=(100,), dropout=0.5, batch_spec=((400, 1024), (100, -1)), hidden_activation="relu", input_noise=0., use_maxout=False, use_maxnorm=False, learning_rate=0.001, verbose=0, init="he_uniform", l2=None):
-        self.hidden_layer_sizes = hidden_layer_sizes
+    def __init__(self, hidden_layer_sizes=(100,), hidden_units=None, dropout=0.5, batch_spec=((100, -1),), hidden_activation="relu", input_noise=0., use_maxout=False, use_maxnorm=False, learning_rate=0.001, verbose=0, init="he_uniform", l2=None, batch_norm=False):
+        if hidden_units:
+            self.hidden_layer_sizes = (hidden_units,)
+        else:
+            self.hidden_layer_sizes = hidden_layer_sizes
         self.dropout = dropout
         self.batch_spec = batch_spec
         self.hidden_activation = hidden_activation
@@ -277,6 +281,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
         self.loss = "mse"
         self.init = init
         self.l2 = l2
+        self.batch_norm = batch_norm
 
         if self.use_maxout:
             self.use_maxnorm = True
@@ -318,6 +323,8 @@ class NnRegressor(sklearn.base.BaseEstimator):
                     model.add(keras.layers.core.MaxoutDense(output_dim=layer_size / num_maxout_features, input_dim=X.shape[1], init=self.init, nb_feature=num_maxout_features))
                 else:
                     model.add(keras.layers.core.Dense(output_dim=layer_size, input_dim=X.shape[1], **dense_kwargs))
+                    if self.batch_norm:
+                        model.add(keras.layers.normalization.BatchNormalization())
                     model.add(self._get_activation())
                 first = False
             else:
@@ -325,8 +332,12 @@ class NnRegressor(sklearn.base.BaseEstimator):
                     model.add(keras.layers.core.MaxoutDense(output_dim=layer_size / num_maxout_features, init=self.init, nb_feature=num_maxout_features))
                 else:
                     model.add(keras.layers.core.Dense(output_dim=layer_size, **dense_kwargs))
+                    if self.batch_norm:
+                        model.add(keras.layers.normalization.BatchNormalization())
                     model.add(self._get_activation())
-            model.add(keras.layers.core.Dropout(self.dropout))
+
+            if self.dropout:
+                model.add(keras.layers.core.Dropout(self.dropout))
 
         if first:
             model.add(keras.layers.core.Dense(output_dim=y.shape[1], input_dim=X.shape[1], **dense_kwargs))
@@ -339,6 +350,9 @@ class NnRegressor(sklearn.base.BaseEstimator):
         # batches as per configuration
         for num_iterations, batch_size in self.batch_spec:
             fit_kwargs = {"verbose": self.verbose}
+
+            # has to be stable for 5% of the run to stop
+            fit_kwargs["callbacks"] = [keras.callbacks.EarlyStopping(monitor="loss", patience=num_iterations/20, verbose=self.verbose, mode="min")]
 
             if batch_size < 0:
                 batch_size = X.shape[0]
@@ -356,17 +370,10 @@ class NnRegressor(sklearn.base.BaseEstimator):
         return self.model_.count_params()
 
     def predict(self, X):
-        # sklearn VotingClassifier requires this to be 1-dimensional
-        return fill_nan(self.model_.predict(X))
+        return self.model_.predict(X)
 
     # def score(self, X, y):
     #     return sklearn.metrics.accuracy_score(y, self.predict(X))
-
-    @staticmethod
-    def generate_batch_params(mini_batch_iter, total_epochs=200, mini_batch_size=1024):
-        for mini_batch_epochs in mini_batch_iter:
-            assert mini_batch_epochs <= total_epochs
-            yield ((mini_batch_epochs, mini_batch_size), (total_epochs - mini_batch_epochs, -1))
 
     @staticmethod
     def compute_num_params(X, layer_spec):
@@ -380,12 +387,13 @@ class NnRegressor(sklearn.base.BaseEstimator):
 
 
 class ExtraRobustScaler(sklearn.preprocessing.RobustScaler):
+    clip_value = 2
     def transform(self, X, y=None):
         X = super(ExtraRobustScaler, self).transform(X, y)
 
         # try to ensure that -1 to 1 is a nice linear range and squash a bit beyond that
-        X[X > 5] = 5
-        X[X < -5] = -5
+        X[X > self.clip_value] = self.clip_value
+        X[X < -self.clip_value] = -self.clip_value
 
         return X
 
@@ -417,13 +425,13 @@ class TimeCV(object):
     Cross-validation wrapper for time-series prediction, i.e., test only on extrapolations into the future.
     Assumes that the data is sorted chronologically.
     """
-    def __init__(self, num_rows, num_splits, min_training=0.5, test_min_splits=1, cheap_reverse=False, gap=0, balanced_tests=True):
+    def __init__(self, num_rows, num_splits, min_training=0.5, test_splits=1, mirror=False, gap=0, balanced_tests=True):
         self.num_rows = int(num_rows)
         self.num_splits = int(num_splits)
-        self.test_split_buckets = test_min_splits
+        self.test_split_buckets = test_splits
         self.min_training = min_training
 
-        self.cheap_reverse = cheap_reverse
+        self.mirror = mirror
         self.gap = gap
         self.balanced_tests = balanced_tests
 
@@ -454,7 +462,7 @@ class TimeCV(object):
             if train_end >= int(self.min_training * self.num_rows):
                 yield list(train_index), list(test_index)
 
-                if self.cheap_reverse:
+                if self.mirror:
                     yield list(self.num_rows - train_index - 1), list(self.num_rows - test_index - 1)
 
 
@@ -462,6 +470,6 @@ def fill_nan(a, method="mean"):
     df = pandas.DataFrame(a)
 
     nan_count = df.isnull().sum().sum()
-    print "Replacing {:,} / {:,} null values".format(nan_count, df.shape[0] * df.shape[1])
+    print "Replacing {:,} / {:,} null values in {}".format(nan_count, df.shape[0] * df.shape[1], df.shape)
     df = df.fillna(df.mean())
     return df.values

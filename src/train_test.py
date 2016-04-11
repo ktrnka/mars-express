@@ -91,7 +91,7 @@ def load_series(files, add_file_number=False, resample_interval=None, date_cols=
     return pandas.concat(data)
 
 
-def load_data(data_dir, resample_interval=None, filter_null_power=False, ftl_cols=None):
+def load_data(data_dir, resample_interval=None, filter_null_power=False):
     # load the base power data
     data = load_series(find_files(data_dir, "power"), add_file_number=True, resample_interval=resample_interval)
 
@@ -117,9 +117,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, ftl_col
     add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
 
     # select columns or take preselected ones
-    if not ftl_cols:
-        ftl_cols = [name for name, count in ftl_data["type"].value_counts().iteritems() if count > 100]
-    for ftl_type in ftl_cols:
+    for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK", "RADIO_SCIENCE"]:
         dest_name = "FTL_" + ftl_type
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
@@ -177,7 +175,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, ftl_col
     # fix any remaining NaN
     data = data.interpolate().fillna(data.mean())
 
-    return data, ftl_cols
+    return data
 
 
 def add_lag_feature(data, feature, window, time_suffix, drop=False, data_type=None):
@@ -203,7 +201,16 @@ def compute_upper_bounds(data):
 
 def make_nn():
     """Make a neural network model with reasonable default args"""
-    return sklearn_helpers.NnRegressor(batch_spec=((500, -1),), learning_rate=0.008, dropout=0.5, hidden_activation="elu", init="glorot_uniform", input_noise=0.02, l2=.01)
+    return sklearn_helpers.NnRegressor(batch_spec=((1000, -1),),
+                                       learning_rate=0.05,
+                                       dropout=0.5,
+                                       batch_norm=True,
+                                       hidden_activation="elu",
+                                       init="glorot_uniform",
+                                       input_noise=0.1,
+                                       l2=None,
+                                       hidden_units=25,
+                                       verbose=0)
 
 @sklearn_helpers.Timed
 def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_pca=False):
@@ -215,7 +222,7 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_p
         X_train = sklearn.decomposition.PCA(n_components=0.99, whiten=True).fit_transform(X_train)
         print "PCA reduced number of features from {} to {}".format(original_shape[1], X_train.shape[1])
 
-    X_train = sklearn.preprocessing.StandardScaler().fit_transform(X_train)
+    # X_train = sklearn.preprocessing.StandardScaler().fit_transform(X_train)
 
     model = make_nn()
     cross_validate(X_train, Y_train, model, "NnRegressor", splits)
@@ -223,12 +230,12 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_p
     if args.analyse_hyperparameters and tune_params:
         print "Running hyperparam opt"
         nn_hyperparams = {
-            "l2": sklearn_helpers.RandomizedSearchCV.exponential(0.1, 0.001),
-            "input_noise": sklearn_helpers.RandomizedSearchCV.uniform(0., 0.05),
-            "dropout": [0.4, 0.5, 0.6],
-            "learning_rate": sklearn_helpers.RandomizedSearchCV.exponential(0.01, 0.001),
-            "batch_spec": [((500, -1),), ((500, 200),)],
-            "hidden_activation": ["sigmoid", "elu", "relu"]
+            "l2": sklearn_helpers.RandomizedSearchCV.exponential(0.01, 0.001),
+            "input_noise": sklearn_helpers.RandomizedSearchCV.uniform(0., 0.1),
+            "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
+            "learning_rate": sklearn_helpers.RandomizedSearchCV.exponential(0.01, 0.005),
+            "hidden_activation": ["sigmoid", "elu", "relu"],
+            "hidden_units": [25, 50, 75, 100]
         }
         model = make_nn()
         wrapped_model = sklearn_helpers.RandomizedSearchCV(model, nn_hyperparams, n_iter=20, n_jobs=1, scoring="mean_squared_error")
@@ -295,10 +302,11 @@ def verify_data(train_df, test_df, filename):
 def main():
     args = parse_args()
 
-    train_data, common_ftl_cols = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
+    train_data = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     # cross validation by year
-    splits = sklearn_helpers.TimeCV(train_data.shape[0], 10, test_min_splits=3, balanced_tests=False)
+    splits = sklearn_helpers.TimeCV(train_data.shape[0], 10, min_training=0.4, test_splits=3, gap=1)
+    # splits = sklearn.cross_validation.KFold(train_data.shape[0], 5, shuffle=True)
     # splits = sklearn.cross_validation.LeaveOneLabelOut(train_data["file_number"])
 
     # just use the biggest one for now
@@ -314,6 +322,8 @@ def main():
         experiment_pairwise_features(X_train, Y_train, splits)
 
     scaler = sklearn_helpers.ExtraRobustScaler()
+    # scaler = sklearn.preprocessing.RobustScaler()
+
     feature_names = X_train.columns
     X_train = scaler.fit_transform(X_train)
 
@@ -324,7 +334,7 @@ def main():
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, "LinearRegression", splits)
 
-    experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
+    # experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
 
     experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
@@ -335,7 +345,7 @@ def main():
     # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
     if args.prediction_file != "-":
-        predict_test_data(X_train, Y_train, scaler, args, common_ftl_cols)
+        predict_test_data(X_train, Y_train, scaler, args)
 
 
 def make_blr():
@@ -435,7 +445,7 @@ def cross_validate(X_train, Y_train, model, model_name, splits):
     print "{}: {:.4f} +/- {:.4f}".format(model_name, scores.mean(), scores.std())
 
 
-def predict_test_data(X_train, Y_train, scaler, args, common_ftl_cols):
+def predict_test_data(X_train, Y_train, scaler, args):
     # retrain baseline model as a sanity check
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     baseline_model.fit(X_train, Y_train)
@@ -444,7 +454,7 @@ def predict_test_data(X_train, Y_train, scaler, args, common_ftl_cols):
     model = make_nn()
     model.fit(X_train, Y_train.values)
 
-    test_data, _ = load_data(args.testing_dir, ftl_cols=common_ftl_cols)
+    test_data = load_data(args.testing_dir)
     X_test, Y_test = separate_output(test_data)
     X_test = scaler.transform(X_test)
 

@@ -44,7 +44,7 @@ class HelperTests(unittest.TestCase):
         self.assertListEqual([(range(0, 50), range(50, 75)), (range(0, 75), range(75, 100))], splits)
 
         # test with 2 buckets per test
-        splits = list(sklearn_helpers.TimeCV(X.shape[0], 4, test_min_splits=2, balanced_tests=False))
+        splits = list(sklearn_helpers.TimeCV(X.shape[0], 4, test_splits=2, balanced_tests=False))
         self.assertListEqual([(range(0, 50), range(50, 100)), (range(0, 75), range(75, 100))], splits)
 
         # test with no min training amount
