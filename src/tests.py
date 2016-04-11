@@ -1,24 +1,12 @@
 from __future__ import unicode_literals
-import sys
-import argparse
+
 import unittest
-# import nose.util
+
 import numpy
-
 import pandas
-from src import sklearn_helpers
-from src.train_test import fill_events
+import sklearn_helpers
+import train_test
 
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    return parser.parse_args()
-
-def main():
-    args = parse_args()
-
-if __name__ == "__main__":
-    sys.exit(main())
 
 def _test_multivariate_regression(model, X, Y):
     model.fit(X, Y)
@@ -32,9 +20,8 @@ def build_data(n):
 
     return X[:,:2], X[:,2:]
 
-
-class SklearnHelperTests(unittest.TestCase):
-    def test_nn_regression(self):
+class ModelTests(unittest.TestCase):
+    def test_nn_regression_model(self):
         X, Y = build_data(100)
         self.assertListEqual([100, 2], list(X.shape))
         self.assertListEqual([100, 2], list(Y.shape))
@@ -47,36 +34,45 @@ class SklearnHelperTests(unittest.TestCase):
         error = ((Y - Y_pred) ** 2).mean().mean()
         self.assertLess(error, 1.)
 
+
+class HelperTests(unittest.TestCase):
+    def test_time_cross_validation_splitter(self):
+        X, Y = build_data(100)
+
+        # regular test
+        splits = list(sklearn_helpers.TimeCV(X.shape[0], 4))
+        self.assertListEqual([(range(0, 50), range(50, 75)), (range(0, 75), range(75, 100))], splits)
+
+        # test with 2 buckets per test
+        splits = list(sklearn_helpers.TimeCV(X.shape[0], 4, test_min_splits=2, balanced_tests=False))
+        self.assertListEqual([(range(0, 50), range(50, 100)), (range(0, 75), range(75, 100))], splits)
+
+        # test with no min training amount
+        splits = list(sklearn_helpers.TimeCV(X.shape[0], 4, min_training=0))
+        self.assertListEqual([(range(0, 25), range(25, 50)), (range(0, 50), range(50, 75)), (range(0, 75), range(75, 100))], splits)
+
+        splits = list(sklearn_helpers.TimeCV(49125, 10))
+        print [(len(s), min(s), max(s), max(s) - min(s)) for _, s in splits]
+        self.assertEqual(5, len(splits))
+
+        for train, test in splits:
+            self.assertEqual(4912, len(test))
+
 class UmbraTests(unittest.TestCase):
     def _make_time(self, start_time, duration_minutes=30):
         duration = pandas.Timedelta(minutes=duration_minutes)
         end_time = start_time + duration
         return {"start": start_time, "end": end_time, "duration": duration}
 
-    def test_single(self):
-        """Test short 30 min events"""
-        df = pandas.DataFrame(index=pandas.DatetimeIndex(freq="1H", start=pandas.datetime(year=2016, month=4, day=1), periods=1000))
+    def test_simple(self):
+        """Test basic event-filling functionality"""
+        hourly_index = pandas.DatetimeIndex(freq="1H", start=pandas.datetime(year=2016, month=4, day=1), periods=1000)
 
         dummy_events = [self._make_time(pandas.datetime(year=2016, month=4, day=1, hour=5, minute=50)), self._make_time(pandas.datetime(year=2016, month=4, day=1, hour=7, minute=20))]
 
-        fill_events(df, dummy_events, "IN_UMBRA")
-        self.assertEqual(1, df["IN_UMBRA"].sum())
+        indicatored = train_test.get_event_series(hourly_index, dummy_events)
+        self.assertEqual(1, indicatored.sum())
 
-    def test_multi(self):
-        """Test cases that cross multiple time ranges"""
-        df = pandas.DataFrame(index=pandas.DatetimeIndex(freq="1H", start=pandas.datetime(year=2016, month=4, day=1), periods=1000))
-
-        dummy_events = [self._make_time(pandas.datetime(year=2016, month=4, day=1, hour=5, minute=50)), self._make_time(pandas.datetime(year=2016, month=4, day=1, hour=7, minute=20), duration_minutes=101)]
-
-        fill_events(df, dummy_events, "IN_UMBRA")
-        self.assertEqual(3, df["IN_UMBRA"].sum())
-
-    def test_durations(self):
-        df = pandas.DataFrame(index=pandas.DatetimeIndex(freq="1H", start=pandas.datetime(year=2016, month=4, day=1), periods=1000))
-
-        dummy_events = [self._make_time(pandas.datetime(year=2016, month=4, day=1, hour=5, minute=50))]
-
-        # first event should add 10 minutes to one and 20 to the other
-
-        fill_events(df, dummy_events, "UMBRA_DURATION", add_duration=True)
-        self.assertEqual(30 * 60, df["UMBRA_DURATION"].sum())
+        minute_index = pandas.DatetimeIndex(freq="1Min", start=pandas.datetime(year=2016, month=4, day=1), periods=1000)
+        indicatored = train_test.get_event_series(minute_index, dummy_events)
+        self.assertEqual(60, indicatored.sum())

@@ -357,7 +357,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
 
     def predict(self, X):
         # sklearn VotingClassifier requires this to be 1-dimensional
-        return self.model_.predict(X)
+        return fill_nan(self.model_.predict(X))
 
     # def score(self, X, y):
     #     return sklearn.metrics.accuracy_score(y, self.predict(X))
@@ -410,3 +410,58 @@ class Timed(object):
             time_string = ", ".join((number_string(hours, "hour", "hours"), time_string))
 
         print "{} took {}".format(self.func.__name__, time_string)
+
+
+class TimeCV(object):
+    """
+    Cross-validation wrapper for time-series prediction, i.e., test only on extrapolations into the future.
+    Assumes that the data is sorted chronologically.
+    """
+    def __init__(self, num_rows, num_splits, min_training=0.5, test_min_splits=1, cheap_reverse=False, gap=0, balanced_tests=True):
+        self.num_rows = int(num_rows)
+        self.num_splits = int(num_splits)
+        self.test_split_buckets = test_min_splits
+        self.min_training = min_training
+
+        self.cheap_reverse = cheap_reverse
+        self.gap = gap
+        self.balanced_tests = balanced_tests
+
+    def __iter__(self):
+        per_bin = self.num_rows / float(self.num_splits)
+
+        for s in xrange(1, self.num_splits):
+            train_end = int(per_bin * s)
+
+            test_start = train_end + int(self.gap * per_bin)
+            test_end = test_start + int(per_bin * self.test_split_buckets)
+
+            if not self.balanced_tests:
+                test_end = min(test_end, self.num_rows)
+
+                # sometimes one leftover due to rounding error
+                if test_end - test_start <= 1:
+                    continue
+
+            # only return uniform size tests
+            if self.balanced_tests and test_end > self.num_rows:
+                continue
+
+            train_index = numpy.asarray(range(0, train_end), dtype=numpy.int32)
+            test_index = numpy.asarray(range(test_start, test_end), dtype=numpy.int32)
+
+            # skip any without enough data
+            if train_end >= int(self.min_training * self.num_rows):
+                yield list(train_index), list(test_index)
+
+                if self.cheap_reverse:
+                    yield list(self.num_rows - train_index - 1), list(self.num_rows - test_index - 1)
+
+
+def fill_nan(a, method="mean"):
+    df = pandas.DataFrame(a)
+
+    nan_count = df.isnull().sum().sum()
+    print "Replacing {:,} / {:,} null values".format(nan_count, df.shape[0] * df.shape[1])
+    df = df.fillna(df.mean())
+    return df.values

@@ -203,7 +203,7 @@ def compute_upper_bounds(data):
 
 def make_nn():
     """Make a neural network model with reasonable default args"""
-    return sklearn_helpers.NnRegressor(batch_spec=((500, 200),), learning_rate=0.008, dropout=0.5, hidden_activation="elu", init="glorot_uniform", input_noise=0.02, l2=0.001)
+    return sklearn_helpers.NnRegressor(batch_spec=((500, -1),), learning_rate=0.008, dropout=0.5, hidden_activation="elu", init="glorot_uniform", input_noise=0.02, l2=.01)
 
 @sklearn_helpers.Timed
 def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_pca=False):
@@ -214,6 +214,8 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_p
         original_shape = X_train.shape
         X_train = sklearn.decomposition.PCA(n_components=0.99, whiten=True).fit_transform(X_train)
         print "PCA reduced number of features from {} to {}".format(original_shape[1], X_train.shape[1])
+
+    X_train = sklearn.preprocessing.StandardScaler().fit_transform(X_train)
 
     model = make_nn()
     cross_validate(X_train, Y_train, model, "NnRegressor", splits)
@@ -296,7 +298,8 @@ def main():
     train_data, common_ftl_cols = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     # cross validation by year
-    splits = sklearn.cross_validation.LeaveOneLabelOut(train_data["file_number"])
+    splits = sklearn_helpers.TimeCV(train_data.shape[0], 10, test_min_splits=3, balanced_tests=False)
+    # splits = sklearn.cross_validation.LeaveOneLabelOut(train_data["file_number"])
 
     # just use the biggest one for now
     X_train, Y_train = separate_output(train_data)
