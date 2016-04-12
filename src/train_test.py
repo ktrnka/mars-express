@@ -208,6 +208,28 @@ def add_lag_feature(data, feature, window, time_suffix, drop=False, data_type=No
         data.drop([feature], axis=1, inplace=True)
 
 
+def add_transformation_feature(data, feature, transform, drop=False):
+    new_name = feature + "_" + transform
+
+    if transform == "log":
+        transformed = numpy.log(data[feature] + 1)
+    elif transform == "square":
+        transformed = numpy.square(data[feature])
+    elif transform == "sqrt":
+        transformed = numpy.sqrt(data[feature])
+    elif transform == "gradient":
+        transformed = numpy.gradient(data[feature])
+    else:
+        print "Unknown transform {} specified".format(transform)
+        sys.exit(-1)
+
+    data[new_name] = transformed
+
+    if drop:
+        data.drop([feature], axis=1, inplace=True)
+
+
+
 def compute_upper_bounds(data):
     data = data[[c for c in data.columns if c.startswith("NPWD")]]
 
