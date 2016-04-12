@@ -12,17 +12,18 @@ import scipy.optimize
 import scipy.stats
 import sklearn
 import sklearn.cross_validation
+import sklearn.decomposition
 import sklearn.dummy
 import sklearn.ensemble
+import sklearn.gaussian_process
 import sklearn.grid_search
 import sklearn.linear_model
+import sklearn.pipeline
 import sklearn.preprocessing
-import sklearn.decomposition
 import sklearn.svm
-import sklearn.gaussian_process
-from src import sklearn_helpers
-from src.sklearn_helpers import MultivariateRegressionWrapper, print_tuning_scores, mse_to_rms, \
-    print_feature_importances
+import sklearn.metrics
+import sklearn_helpers
+from sklearn_helpers import MultivariateRegressionWrapper, mse_to_rms, print_feature_importances
 
 
 def parse_args():
@@ -32,6 +33,7 @@ def parse_args():
     parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
     parser.add_argument("--analyse-feature-importance", default=False, action="store_true", help="Analyse feature importance and print them out for some models")
     parser.add_argument("--analyse-hyperparameters", default=False, action="store_true", help="Analyse hyperparameters and print them out for some models")
+
     parser.add_argument("training_dir", help="Dir with the training CSV files")
     parser.add_argument("testing_dir", help="Dir with the testing files, including the empty prediction file")
     parser.add_argument("prediction_file", help="Destination for predictions")
@@ -39,6 +41,7 @@ def parse_args():
 
 
 def parse_dates(column):
+    """Date parser for pandas.read_csv"""
     return pandas.to_datetime(column.astype(int), unit="ms")
 
 
@@ -48,6 +51,7 @@ def find_files(path, substring):
 
 
 def get_evtf_ranges(event_data, event_prefix):
+    """Get time ranges between event_prefix + _START and event_prefix + _END"""
     current_start = None
     event_ranges = []
     for date, row in event_data[event_data.description.str.startswith(event_prefix)].iterrows():
@@ -63,11 +67,13 @@ def get_evtf_ranges(event_data, event_prefix):
 
 
 def get_ftl_periods(ftl_slice):
+    """Get time ranges for FTL data (first two columns are start and end time so it's simple)"""
     for row in ftl_slice.itertuples():
         yield {"start": row[0], "end": row[1]}
 
 
 def get_event_series(datetime_index, event_ranges):
+    """Create a boolean series showing when in the datetime_index we're in the time ranges in the event_ranges"""
     series = pandas.Series(data=0, index=datetime_index, dtype=numpy.int8)
 
     for event in event_ranges:
@@ -95,8 +101,10 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False):
     # load the base power data
     data = load_series(find_files(data_dir, "power"), add_file_number=True, resample_interval=resample_interval)
 
-    saaf_data = load_series(find_files(data_dir, "saaf"))
+    event_sampling_index = pandas.DatetimeIndex(freq="5Min", start=data.index.min(), end=data.index.max())
+    event_sampled_df = pandas.DataFrame(index=event_sampling_index)
 
+    ### LTDATA ###
     longterm_data = load_series(find_files(data_dir, "ltdata"))
 
     # as far as I can tell this doesn't make a difference
@@ -106,12 +114,9 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False):
     add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)
     add_lag_feature(longterm_data, "eclipseduration_min", 5 * 24, "5d", data_type=numpy.int64)
 
-    event_sampling_index = pandas.DatetimeIndex(freq="5Min", start=data.index.min(), end=data.index.max())
-
-    # ftl
+    ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
 
-    event_sampled_df = pandas.DataFrame(index=event_sampling_index)
     event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
     add_lag_feature(event_sampled_df, "flagcomms", 12, "1h")
     add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
@@ -123,7 +128,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False):
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         add_lag_feature(event_sampled_df, dest_name, 24, "2h")
 
-    # events
+    ### EVTF ###
     event_data = load_series(find_files(data_dir, "evtf"))
 
     for event_name in ["MAR_UMBRA", "MRB_/_RANGE_06000KM", "MSL_/_RANGE_06000KM"]:
@@ -137,6 +142,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False):
     add_lag_feature(event_data, "event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(event_data, "event_counts", 5, "5h", data_type=numpy.int64)
 
+    ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["dmop_counts"] = 1
@@ -144,12 +150,15 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False):
     add_lag_feature(dmop_data, "dmop_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(dmop_data, "dmop_counts", 5, "2h", data_type=numpy.int64)
 
-    # resample saaf to 30 minute windows before reindexing to smooth it out a bit
-    saaf_data = saaf_data.resample("30Min").mean().reindex(data.index, method="nearest")
+    ### SAAF ###
+    saaf_data = load_series(find_files(data_dir, "saaf"))
+    # saaf_data.drop(["sx", "sa", "sy"], axis=1, inplace=True)
+    saaf_data = saaf_data.resample("1H").mean().reindex(data.index, method="nearest").interpolate()
 
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
     data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest")], axis=1)
+    # data = pandas.concat([data, longterm_data], axis=1)
 
     if filter_null_power:
         previous_size = data.shape[0]
@@ -159,21 +168,23 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False):
 
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
 
-    data.drop(["sx", "sa", "sy"], axis=1, inplace=True)
-    for feature in ["sz"]:
-        data["sin_{}".format(feature)] = numpy.sin(data[feature] / 360)
-        data["cos_{}".format(feature)] = numpy.cos(data[feature] / 360)
+    # data["months_in_space"] = ((data.index - pandas.datetime(year=2003, month=6, day=2)).days / 30).astype(numpy.int64)
+    # assert data["months_in_space"].max() > 12
 
-    # experiments on 7-day data suggest that this might be useful
-    # data["sunmars_km * days_in_space"] = data["sunmars_km"] * data["days_in_space"]
+    # for feature in ["sz"]:
+    #     data["sin_{}".format(feature)] = numpy.sin(data[feature] / 360)
+    #     data["cos_{}".format(feature)] = numpy.cos(data[feature] / 360)
 
-    # print "Before fillna global:"
-    # data.info()
-    #
-    # print data.head(100)
+    # simple check on NaN
+    data_na = data[[c for c in data.columns if not c.startswith("NPWD")]].isnull().sum()
+    if data_na.sum() > 0:
+        print "Null values in feature matrix:"
 
-    # fix any remaining NaN
-    data = data.interpolate().fillna(data.mean())
+        for feature, na_count in data_na.iteritems():
+            if not na_count > 0:
+                print "\t{}: {:.1f}% null ({:,} / {:,})".format(feature, 100. * na_count / len(data), na_count, len(data))
+
+        sys.exit(-1)
 
     return data
 
@@ -201,16 +212,28 @@ def compute_upper_bounds(data):
 
 def make_nn():
     """Make a neural network model with reasonable default args"""
-    return sklearn_helpers.NnRegressor(batch_spec=((1000, -1),),
-                                       learning_rate=0.05,
-                                       dropout=0.5,
-                                       batch_norm=True,
-                                       hidden_activation="elu",
-                                       init="glorot_uniform",
-                                       input_noise=0.1,
-                                       l2=None,
-                                       hidden_units=25,
-                                       verbose=0)
+    # feature_selector = sklearn.feature_selection.VarianceThreshold(.9 * .1)
+    feature_selector = sklearn.feature_selection.SelectFromModel(sklearn.linear_model.LinearRegression(), threshold="1.5*mean", prefit=False)
+
+    scaler = sklearn.preprocessing.StandardScaler()
+
+    model = sklearn_helpers.NnRegressor(num_epochs=500,
+                                        batch_size=200,
+                                        learning_rate=0.05,
+                                        dropout=0.5,
+                                        activation="sigmoid",
+                                        input_noise=0.05,
+                                        hidden_units=25,
+                                        early_stopping=True,
+                                        loss="mse",
+                                        l2=0.0001,
+                                        maxnorm=True,
+                                        assert_finite=False,
+                                        verbose=0)
+
+    # return sklearn.pipeline.Pipeline([("nn", model)])
+
+    return model
 
 @sklearn_helpers.Timed
 def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_pca=False):
@@ -230,11 +253,10 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_p
     if args.analyse_hyperparameters and tune_params:
         print "Running hyperparam opt"
         nn_hyperparams = {
-            "l2": sklearn_helpers.RandomizedSearchCV.exponential(0.01, 0.001),
             "input_noise": sklearn_helpers.RandomizedSearchCV.uniform(0., 0.1),
             "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
-            "learning_rate": sklearn_helpers.RandomizedSearchCV.exponential(0.01, 0.005),
-            "hidden_activation": ["sigmoid", "elu", "relu"],
+            "learning_rate": sklearn_helpers.RandomizedSearchCV.exponential(0.05, 0.0005),
+            "activation": ["sigmoid", "elu", "relu", "tanh"],
             "hidden_units": [25, 50, 75, 100]
         }
         model = make_nn()
@@ -286,6 +308,12 @@ def experiment_pairwise_features(X_train, Y_train, splits):
 
 
 def verify_data(train_df, test_df, filename):
+    # test stddevs
+    train_std = train_df.std()
+    for feature, std in train_std.iteritems():
+        if std < 0.1:
+            print "{} stddev {}".format(feature, std)
+
     # scale both input and output
     train = sklearn.preprocessing.RobustScaler().fit_transform(train_df)
     test = sklearn.preprocessing.StandardScaler().fit_transform(test_df)
@@ -295,9 +323,11 @@ def verify_data(train_df, test_df, filename):
     train_deviant_rows = train_deviants.sum(axis=1) > 0
 
     deviant_df = pandas.DataFrame(numpy.hstack([train[train_deviant_rows], test[train_deviant_rows]]), columns=list(train_df.columns) + list(test_df.columns))
-    deviant_df.to_csv(filename)
-    print "Wrote {} deviant training rows to {}".format(deviant_df.shape[0], filename)
-
+    if deviant_df.shape[0] > 0:
+        print "Found {:,} deviant rows, saving to {}".format(deviant_df.shape[0], filename)
+        deviant_df.to_csv(filename)
+    else:
+        print "No deviant rows"
 
 def main():
     args = parse_args()
@@ -305,9 +335,9 @@ def main():
     train_data = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     # cross validation by year
-    splits = sklearn_helpers.TimeCV(train_data.shape[0], 10, min_training=0.4, test_splits=3, gap=1)
+    # splits = sklearn_helpers.TimeCV(train_data.shape[0], 10, min_training=0.4, test_splits=3, gap=1)
     # splits = sklearn.cross_validation.KFold(train_data.shape[0], 5, shuffle=True)
-    # splits = sklearn.cross_validation.LeaveOneLabelOut(train_data["file_number"])
+    splits = sklearn.cross_validation.LeaveOneLabelOut(train_data["file_number"])
 
     # just use the biggest one for now
     X_train, Y_train = separate_output(train_data)
@@ -338,11 +368,11 @@ def main():
 
     experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
-    experiment_neural_network(X_train, Y_train, args, splits, tune_params=True)
+    experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
-    # experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False)
+    experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
-    # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
+    experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
     if args.prediction_file != "-":
         predict_test_data(X_train, Y_train, scaler, args)
@@ -383,7 +413,7 @@ def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, 
             "max_depth": scipy.stats.randint(3, 6),
             "min_samples_leaf": scipy.stats.randint(10, 100),
             "subsample": [0.9, 1.],
-            "max_features": scipy.stats.randint(4, X_train.shape[1] + 1)
+            "max_features": scipy.stats.randint(8, X_train.shape[1])
         }
         wrapped_model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.GradientBoostingRegressor(), gb_hyperparams, n_iter=20, n_jobs=3, scoring="mean_squared_error"))
         cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(GradientBoostingRegressor)", splits)
@@ -396,38 +426,40 @@ def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, 
 
 
 def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False):
-    model = MultivariateRegressionWrapper(sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression(), learning_rate=0.7, loss="square"))
+    model = MultivariateRegressionWrapper(sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression(), n_estimators=4, learning_rate=0.5, loss="square"))
     cross_validate(X_train, Y_train, model, "AdaBoost(LinearRegression)", splits)
 
     if args.analyse_hyperparameters and tune_params:
         ada_params = {
-            "learning_rate": scipy.stats.uniform(0.3, 1.),
-            "n_estimators": scipy.stats.randint(20, 100),
-            "loss": ["linear", "square", "exponential"]
+            "learning_rate": scipy.stats.uniform(0.2, 1.),
+            "n_estimators": scipy.stats.randint(2, 10)
         }
-        model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression()), ada_params, scoring="mean_squared_error"))
+        base_model = sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression(), loss="square")
+        model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, ada_params, scoring="mean_squared_error"))
         cross_validate(X_train, Y_train, model, "RandomSearchCV(AdaBoost(LinearRegression))", splits)
 
         print "Refitting to show hyperparams"
         model.fit(X_train, Y_train)
         model.print_best_params()
 
+
 def make_rf():
     """Make a random forest model with reasonable default args"""
-    return sklearn.ensemble.RandomForestRegressor(20, min_samples_leaf=30, max_depth=15, max_features=10)
+    return sklearn.ensemble.RandomForestRegressor(25, min_samples_leaf=100, max_depth=10, max_features=15)
+
 
 @sklearn_helpers.Timed
 def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False):
     # plain model
-    model = sklearn.ensemble.RandomForestRegressor(20, min_samples_leaf=30, max_depth=15, max_features=10)
+    model = make_rf()
     cross_validate(X_train, Y_train, model, "RandomForestRegressor", splits)
 
     if args.analyse_hyperparameters and tune_params:
         rf_hyperparams = {
             "min_samples_leaf": scipy.stats.randint(10, 100),
             "max_depth": scipy.stats.randint(5, 15),
-            "max_features": scipy.stats.randint(8, X_train.shape[1] + 1),
-            "n_estimators": scipy.stats.randint(20, 50)
+            "max_features": scipy.stats.randint(8, X_train.shape[1]),
+            "n_estimators": scipy.stats.randint(20, 30)
         }
         wrapped_model = sklearn.grid_search.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3, scoring="mean_squared_error")
         cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(RandomForestRegression)", splits)
@@ -440,7 +472,24 @@ def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune
             print_feature_importances(feature_names, model.best_estimator_)
 
 
-def cross_validate(X_train, Y_train, model, model_name, splits):
+def cross_validate(X_train, Y_train, model, model_name, splits, diagnostics=False):
+    if diagnostics:
+        for i, (train, test) in enumerate(splits):
+            # analyse train and test
+            print "Split {}".format(i)
+
+            print "\tX[train].mean diff: ", X_train[train].mean(axis=0) - X_train.mean(axis=0)
+            print "\tX[train].std diffs: ", X_train[train].std(axis=0) - X_train.std(axis=0)
+            print "\tY[train].mean: ", Y_train[train].mean(axis=0)
+            print "\tY[train].std: ", Y_train[train].std(axis=0).mean()
+
+            model.fit(X_train[train], Y_train[train])
+            predictions = model.predict(X_train[test])
+            error = sklearn.metrics.mean_squared_error(Y_train[test], predictions) ** 0.5
+
+            print "\tRMS: {}".format(error)
+
+
     scores = mse_to_rms(sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring="mean_squared_error", cv=splits))
     print "{}: {:.4f} +/- {:.4f}".format(model_name, scores.mean(), scores.std())
 

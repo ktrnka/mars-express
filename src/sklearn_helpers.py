@@ -1,41 +1,27 @@
 from __future__ import unicode_literals
 
+import collections
 import math
 import numbers
-import sys
-import argparse
+import time
 from operator import itemgetter
 
-import collections
-
-import time
-
+import keras.callbacks
+import keras.constraints
+import keras.layers.advanced_activations
+import keras.layers.noise
+import keras.layers.normalization
+import keras.models
+import keras.optimizers
+import keras.regularizers
 import numpy
 import pandas
 import scipy.optimize
+import scipy.stats
 import sklearn
 import sklearn.grid_search
 import sklearn.linear_model
-import keras.constraints
-import keras.layers.noise
-import keras.layers.normalization
-import keras.optimizers
-import keras.callbacks
-import keras.models
-import scipy.stats
-import keras.layers.advanced_activations
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    return parser.parse_args()
-
-
-def main():
-    args = parse_args()
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+import sklearn.utils
 
 
 class TimeSeriesRegressor(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
@@ -174,6 +160,7 @@ def print_feature_importances(columns, classifier):
 
 
 class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
+    """Wrapper for sklearn RandomizedSearchCV that can run correlation analysis on hyperparameters"""
     def __init__(self, *args, **kwargs):
         super(RandomizedSearchCV, self).__init__(*args, **kwargs)
 
@@ -189,10 +176,6 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
         print "Linear hyperparameter correlations with evaluation metric"
         for param, (stat_name, stat, pval) in self.correlate_hyperparameters(score_transformer=score_transformer).iteritems():
             print "\t{}: {} = {:.4f}, p = {:.4f}".format(param, stat_name, stat, pval)
-
-        # print "Folded hyperparameter correlations with evaluation metric"
-        # for param, (stat_name, stat, pval) in self.correlate_hyperparameters(score_transformer=score_transformer, fold_over_max=True).iteritems():
-        #     print "\t{}: {} = {:.4f}, p = {:.4f}".format(param, stat_name, stat, pval)
 
     def correlate_hyperparameters(self, score_transformer=None, fold_over_max=False):
         param_scores = self._get_independent_scores(score_transformer)
@@ -254,7 +237,6 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
         return numpy.exp(numpy.linspace(math.log(start), math.log(end), num=num_samples))
 
 
-
 class LinearRegressionWrapper(sklearn.linear_model.LinearRegression):
     """Wrapper for LinearRegression that's compatible with GradientBoostingClassifier sample_weights"""
     def fit(self, X, y, sample_weight, **kwargs):
@@ -263,36 +245,40 @@ class LinearRegressionWrapper(sklearn.linear_model.LinearRegression):
     def predict(self, X):
         return super(LinearRegressionWrapper, self).predict(X)[:, numpy.newaxis]
 
+_he_activations = {"relu"}
+
 class NnRegressor(sklearn.base.BaseEstimator):
-    """Wrapper for Keras feed-forward neural network for classification to enable scikit-learn grid search"""
-    def __init__(self, hidden_layer_sizes=(100,), hidden_units=None, dropout=0.5, batch_spec=((100, -1),), hidden_activation="relu", input_noise=0., use_maxout=False, use_maxnorm=False, learning_rate=0.001, verbose=0, init="he_uniform", l2=None, batch_norm=False):
+    """Wrapper for Keras feed-forward neural network for regression to enable scikit-learn grid search"""
+
+    def __init__(self, hidden_layer_sizes=(100,), hidden_units=None, dropout=0.5, batch_size=-1, loss="mse", num_epochs=500, activation="relu", input_noise=0., learning_rate=0.001, verbose=0, init=None, l2=None, batch_norm=False, early_stopping=False, clip_gradient_norm=None, assert_finite=True,
+                 maxnorm=False):
+        self.clip_gradient_norm = clip_gradient_norm
+        self.assert_finite = assert_finite
         if hidden_units:
             self.hidden_layer_sizes = (hidden_units,)
         else:
             self.hidden_layer_sizes = hidden_layer_sizes
         self.dropout = dropout
-        self.batch_spec = batch_spec
-        self.hidden_activation = hidden_activation
+        self.batch_size = batch_size
+        self.num_epochs = num_epochs
+        self.activation = activation
         self.input_noise = input_noise
-        self.use_maxout = use_maxout
-        self.use_maxnorm = use_maxnorm
         self.learning_rate = learning_rate
         self.verbose = verbose
-        self.loss = "mse"
-        self.init = init
+        self.loss = loss
         self.l2 = l2
         self.batch_norm = batch_norm
-
-        if self.use_maxout:
-            self.use_maxnorm = True
+        self.early_stopping = early_stopping
+        self.init = self._get_default_init(init, activation)
+        self.use_maxnorm = maxnorm
 
         self.model_ = None
 
     def _get_activation(self):
-        if self.hidden_activation == "elu":
+        if self.activation == "elu":
             return keras.layers.advanced_activations.ELU()
         else:
-            return keras.layers.core.Activation(self.hidden_activation)
+            return keras.layers.core.Activation(self.activation)
 
     def fit(self, X, y, **kwargs):
         self.set_params(**kwargs)
@@ -302,91 +288,92 @@ class NnRegressor(sklearn.base.BaseEstimator):
 
         model = keras.models.Sequential()
 
-        first = True
-
+        # optional input noise
         if self.input_noise > 0:
             model.add(keras.layers.noise.GaussianNoise(self.input_noise, input_shape=X.shape[1:]))
 
-        num_maxout_features = 2
-
-        dense_kwargs = {"init": self.init}
-        if self.use_maxnorm:
-            dense_kwargs["W_constraint"] = keras.constraints.maxnorm(2)
-        if self.l2:
-            dense_kwargs["W_regularizer"] = keras.regularizers.l2(self.l2)
-
+        dense_kwargs = self._get_dense_layer_kwargs()
 
         # hidden layers
         for layer_size in self.hidden_layer_sizes:
-            if first:
-                if self.use_maxout:
-                    model.add(keras.layers.core.MaxoutDense(output_dim=layer_size / num_maxout_features, input_dim=X.shape[1], init=self.init, nb_feature=num_maxout_features))
-                else:
-                    model.add(keras.layers.core.Dense(output_dim=layer_size, input_dim=X.shape[1], **dense_kwargs))
-                    if self.batch_norm:
-                        model.add(keras.layers.normalization.BatchNormalization())
-                    model.add(self._get_activation())
-                first = False
-            else:
-                if self.use_maxout:
-                    model.add(keras.layers.core.MaxoutDense(output_dim=layer_size / num_maxout_features, init=self.init, nb_feature=num_maxout_features))
-                else:
-                    model.add(keras.layers.core.Dense(output_dim=layer_size, **dense_kwargs))
-                    if self.batch_norm:
-                        model.add(keras.layers.normalization.BatchNormalization())
-                    model.add(self._get_activation())
+            model.add(keras.layers.core.Dense(output_dim=layer_size, **dense_kwargs))
+            if self.batch_norm:
+                model.add(keras.layers.normalization.BatchNormalization())
+            model.add(self._get_activation())
 
             if self.dropout:
                 model.add(keras.layers.core.Dropout(self.dropout))
 
-        if first:
-            model.add(keras.layers.core.Dense(output_dim=y.shape[1], input_dim=X.shape[1], **dense_kwargs))
-        else:
-            model.add(keras.layers.core.Dense(output_dim=y.shape[1], **dense_kwargs))
+        # output layer
+        model.add(keras.layers.core.Dense(output_dim=y.shape[1], **dense_kwargs))
 
-        optimizer = keras.optimizers.Adam(lr=self.learning_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-8)
+        optimizer = keras.optimizers.Adam(**self._get_optimizer_kwargs())
         model.compile(loss=self.loss, optimizer=optimizer)
 
-        # batches as per configuration
-        for num_iterations, batch_size in self.batch_spec:
-            fit_kwargs = {"verbose": self.verbose}
-
-            # has to be stable for 5% of the run to stop
-            fit_kwargs["callbacks"] = [keras.callbacks.EarlyStopping(monitor="loss", patience=num_iterations/20, verbose=self.verbose, mode="min")]
-
-            if batch_size < 0:
-                batch_size = X.shape[0]
-            elif batch_size > X.shape[0]:
-                print "Clipping batch size to input rows"
-                batch_size = X.shape[0]
-
-            if num_iterations > 0:
-                model.fit(X, y, nb_epoch=num_iterations, batch_size=batch_size, **fit_kwargs)
+        model.fit(X, y, nb_epoch=self.num_epochs, **self._get_fit_kwargs(X))
 
         self.model_ = model
         return self
+
+    def _get_dense_layer_kwargs(self):
+        """Apply settings to dense layer keyword args"""
+        dense_kwargs = {"init": self.init}
+        if self.l2:
+            dense_kwargs["W_regularizer"] = keras.regularizers.l2(self.l2)
+
+        if self.use_maxnorm:
+            dense_kwargs["W_constraint"] = keras.constraints.MaxNorm(2)
+            dense_kwargs["b_constraint"] = keras.constraints.MaxNorm(2)
+
+        return dense_kwargs
+
+    def _get_fit_kwargs(self, X):
+        """Apply settings to the fit function keyword args"""
+        kwargs = {"verbose": self.verbose, "callbacks": []}
+
+        if self.early_stopping:
+            es = keras.callbacks.EarlyStopping(monitor="loss", patience=self.num_epochs / 20, verbose=self.verbose, mode="min")
+            kwargs["callbacks"].append(es)
+
+        kwargs["batch_size"] = self.batch_size
+        if kwargs["batch_size"] < 0 or kwargs["batch_size"] > X.shape[0]:
+            kwargs["batch_size"] = X.shape[0]
+
+        return kwargs
 
     def count_params(self):
         return self.model_.count_params()
 
     def predict(self, X):
-        return self.model_.predict(X)
+        Y = self.model_.predict(X)
 
-    # def score(self, X, y):
-    #     return sklearn.metrics.accuracy_score(y, self.predict(X))
+        if self.assert_finite:
+            sklearn.utils.assert_all_finite(Y)
+        else:
+            Y = numpy.nan_to_num(Y)
 
-    @staticmethod
-    def compute_num_params(X, layer_spec):
-        layers = [X.shape[1]] + list(layer_spec) + [1]
+        return Y
 
-        num_params = 0
-        for i in xrange(1, len(layers)):
-            num_params += (layers[i - 1] + 1) * layers[i]
+    def _get_default_init(self, init, activation):
+        if init:
+            return init
 
-        return num_params
+        if activation in _he_activations:
+            return "he_uniform"
+
+        return "glorot_uniform"
+
+    def _get_optimizer_kwargs(self):
+        kwargs = {"lr": self.learning_rate}
+
+        if self.clip_gradient_norm:
+            kwargs["clipnorm"] = self.clip_gradient_norm
+
+        return kwargs
 
 
 class ExtraRobustScaler(sklearn.preprocessing.RobustScaler):
+    """Tweak on RobustScaler to clip values to -2 to 2 after reducing to IQR"""
     clip_value = 2
     def transform(self, X, y=None):
         X = super(ExtraRobustScaler, self).transform(X, y)
