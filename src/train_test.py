@@ -66,6 +66,20 @@ def get_evtf_ranges(event_data, event_prefix):
     return event_ranges
 
 
+def get_evtf_altitude(event_data, index=None):
+    """Read the ascend/descend events and compute the current altitude at all points"""
+    desc = event_data.description.str.extract(r"(\d+)_KM_DESCEND", expand=False).fillna(0).astype(numpy.int16)
+    asc = event_data.description.str.extract(r"(\d+)_KM_ASCEND", expand=False).fillna(0).astype(numpy.int16)
+
+    alt_delta = asc - desc
+    alt = alt_delta.cumsum()
+    alt -= alt.min()
+
+    if index is not None:
+        alt = alt.resample("1H").mean().interpolate().reindex(index, method="nearest")
+
+    return alt
+
 def get_ftl_periods(ftl_slice):
     """Get time ranges for FTL data (first two columns are start and end time so it's simple)"""
     for row in ftl_slice.itertuples():
@@ -136,23 +150,24 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False):
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
 
+    altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
-    event_data["event_counts"] = 1
+    event_data["EVTF_event_counts"] = 1
     event_data = event_data.resample("1H").count().reindex(data.index, method="nearest")
+    event_data["EVTF_altitude"] = altitude_series
     add_lag_feature(event_data, "event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(event_data, "event_counts", 5, "5h", data_type=numpy.int64)
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
-    dmop_data["dmop_counts"] = 1
+    dmop_data["DMOP_event_counts"] = 1
     dmop_data = dmop_data.resample("1H").count().reindex(data.index, method="nearest")
-    add_lag_feature(dmop_data, "dmop_counts", 2, "2h", data_type=numpy.int64)
-    add_lag_feature(dmop_data, "dmop_counts", 5, "2h", data_type=numpy.int64)
+    add_lag_feature(dmop_data, "DMOP_event_counts", 2, "2h", data_type=numpy.int64)
+    add_lag_feature(dmop_data, "DMOP_event_counts", 5, "2h", data_type=numpy.int64)
 
     ### SAAF ###
     saaf_data = load_series(find_files(data_dir, "saaf"))
-    # saaf_data.drop(["sx", "sa", "sy"], axis=1, inplace=True)
     saaf_data = saaf_data.resample("1H").mean().reindex(data.index, method="nearest").interpolate()
 
     longterm_data = longterm_data.reindex(data.index, method="nearest")
@@ -168,20 +183,13 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False):
 
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
 
-    # data["months_in_space"] = ((data.index - pandas.datetime(year=2003, month=6, day=2)).days / 30).astype(numpy.int64)
-    # assert data["months_in_space"].max() > 12
-
-    # for feature in ["sz"]:
-    #     data["sin_{}".format(feature)] = numpy.sin(data[feature] / 360)
-    #     data["cos_{}".format(feature)] = numpy.cos(data[feature] / 360)
-
     # simple check on NaN
     data_na = data[[c for c in data.columns if not c.startswith("NPWD")]].isnull().sum()
     if data_na.sum() > 0:
         print "Null values in feature matrix:"
 
         for feature, na_count in data_na.iteritems():
-            if not na_count > 0:
+            if na_count > 0:
                 print "\t{}: {:.1f}% null ({:,} / {:,})".format(feature, 100. * na_count / len(data), na_count, len(data))
 
         sys.exit(-1)
@@ -368,11 +376,11 @@ def main():
 
     experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
-    experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False)
+    # experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
-    experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
+    # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
-    experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
+    # experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
     if args.prediction_file != "-":
         predict_test_data(X_train, Y_train, scaler, args)
@@ -401,9 +409,12 @@ def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_par
         model.print_best_params()
 
 
+def make_gb():
+    return MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor(max_features=30, n_estimators=40, subsample=0.9, learning_rate=0.3, max_depth=4, min_samples_leaf=50))
+
 @sklearn_helpers.Timed
 def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=False):
-    model = MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor(max_features=18, n_estimators=50, learning_rate=0.3, max_depth=4, min_samples_leaf=66))
+    model = MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor(max_features=30, n_estimators=40, subsample=0.9, learning_rate=0.3, max_depth=4, min_samples_leaf=50))
     cross_validate(X_train, Y_train, model, "GradientBoostingRegressor", splits)
 
     if args.analyse_hyperparameters and tune_params:
