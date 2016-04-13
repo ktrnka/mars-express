@@ -479,16 +479,20 @@ class OutputTransformation(sklearn.base.BaseEstimator):
     def predict(self, X):
         return self.transformer.inverse_transform(self.estimator.predict(X))
 
-def get_model_name(model):
+
+def get_model_name(model, format="{}({})"):
     name = type(model).__name__
-    format = "{}({})"
 
     try:
-        nested_name = get_model_name(model.estimator)
+        nested_name = get_model_name(model.estimator, format)
         return format.format(name, nested_name)
     except AttributeError:
         try:
-            nested_name = get_model_name(model.base_estimator)
+            nested_name = get_model_name(model.base_estimator, format)
             return format.format(name, nested_name)
         except AttributeError:
-            return name
+            try:
+                nested_name = get_model_name(model._final_estimator, format)
+                return format.format(name, nested_name)
+            except AttributeError:
+                return name

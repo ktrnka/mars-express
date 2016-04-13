@@ -7,6 +7,7 @@ import pandas
 import sklearn_helpers
 import train_test
 import helpers.multivariate
+import sklearn.pipeline
 
 def _test_multivariate_regression(model, X, Y):
     model.fit(X, Y)
@@ -72,6 +73,10 @@ class HelperTests(unittest.TestCase):
         # test random search
         model = sklearn_helpers.RandomizedSearchCV(sklearn_helpers.NnRegressor(), {"dropout": [0.4, 0.5]})
         self.assertEqual("RandomizedSearchCV(NnRegressor)", sklearn_helpers.get_model_name(model))
+
+        # test a pipeline
+        pipe = sklearn.pipeline.Pipeline([("nn", sklearn_helpers.NnRegressor())])
+        self.assertEqual("Pipeline(NnRegressor)", sklearn_helpers.get_model_name(pipe))
 
 class UmbraTests(unittest.TestCase):
     def _make_time(self, start_time, duration_minutes=30):
