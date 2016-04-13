@@ -1,20 +1,6 @@
 from __future__ import unicode_literals
-import sys
-import argparse
+
 import time
-
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    return parser.parse_args()
-
-
-def main():
-    args = parse_args()
-
-
-if __name__ == "__main__":
-    sys.exit(main())
 
 
 def number_string(number, singular_unit, plural_unit, format_string="{} {}"):

@@ -41,8 +41,6 @@ def parse_args():
     parser.add_argument("--analyse-hyperparameters", default=False, action="store_true", help="Analyse hyperparameters and print them out for some models")
 
     parser.add_argument("training_dir", help="Dir with the training CSV files")
-    parser.add_argument("testing_dir", help="Dir with the testing files, including the empty prediction file")
-    parser.add_argument("prediction_file", help="Destination for predictions")
     return parser.parse_args()
 
 
@@ -118,6 +116,8 @@ def load_series(files, add_file_number=False, resample_interval=None, date_cols=
 
 
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
+    logger = logging.getLogger("load_data")
+
     # load the base power data
     data = load_series(find_files(data_dir, "power"), add_file_number=True, resample_interval=resample_interval)
 
@@ -179,13 +179,12 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
     data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest")], axis=1)
-    # data = pandas.concat([data, longterm_data], axis=1)
 
     if filter_null_power:
         previous_size = data.shape[0]
         data = data[data.NPWD2532.notnull()]
         if data.shape[0] < previous_size:
-            print "Reduced data from {:,} rows to {:,}".format(previous_size, data.shape[0])
+            logger.info("Reduced data from {:,} rows to {:,}".format(previous_size, data.shape[0]))
 
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
 
@@ -198,17 +197,6 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_transformation_feature(data, "occultationduration_min", "log", drop=True)
         add_transformation_feature(data, "sy", "log", drop=True)
         add_transformation_feature(data, "sa", "log", drop=True)
-
-    # simple check on NaN
-    data_na = data[[c for c in data.columns if not c.startswith("NPWD")]].isnull().sum()
-    if data_na.sum() > 0:
-        print "Null values in feature matrix:"
-
-        for feature, na_count in data_na.iteritems():
-            if na_count > 0:
-                print "\t{}: {:.1f}% null ({:,} / {:,})".format(feature, 100. * na_count / len(data), na_count, len(data))
-
-        sys.exit(-1)
 
     return data
 
@@ -244,8 +232,6 @@ def add_transformation_feature(data, feature, transform, drop=False):
     if drop:
         data.drop([feature], axis=1, inplace=True)
 
-
-
 def compute_upper_bounds(data):
     data = data[[c for c in data.columns if c.startswith("NPWD")]]
 
@@ -256,6 +242,7 @@ def compute_upper_bounds(data):
         rms = ((data - upsampled_data) ** 2).mean().mean() ** 0.5
         print "RMS with {} approximation: {:.3f}".format(interval, rms)
 
+
 def make_nn():
     """Make a neural network model with reasonable default args"""
     # feature_selector = sklearn.feature_selection.VarianceThreshold(.9 * .1)
@@ -263,7 +250,7 @@ def make_nn():
 
     # fs = sklearn.feature_selection.RFE(LinearRegression(), n_features_to_select=50)
 
-    pca = sklearn.decomposition.PCA(n_components=0.99, whiten=True)
+    # pca = sklearn.decomposition.PCA(n_components=0.99, whiten=True)
 
     model = helpers.neural.NnRegressor(num_epochs=500,
                                        batch_size=200,
@@ -279,19 +266,13 @@ def make_nn():
                                        assert_finite=False,
                                        verbose=0)
 
-    return sklearn.pipeline.Pipeline([("pca", pca), ("nn", model)])
+    # return sklearn.pipeline.Pipeline([("pca", pca), ("nn", model)])
 
-    # return model
+    return model
 
 @helpers.general.Timed
 def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_pca=False):
     Y_train = Y_train.values
-
-    # PCA
-    if use_pca:
-        original_shape = X_train.shape
-        X_train = sklearn.decomposition.PCA(n_components=0.99, whiten=True).fit_transform(X_train)
-        print "PCA reduced number of features from {} to {}".format(original_shape[1], X_train.shape[1])
 
     model = make_nn()
     cross_validate(X_train, Y_train, model, splits)
@@ -354,6 +335,19 @@ def experiment_pairwise_features(X_train, Y_train, splits):
 
 
 def verify_data(train_df, test_df, filename):
+    logger = logging.getLogger("verify_data")
+
+    # simple check on NaN
+    data_na = train_df[[c for c in train_df.columns if not c.startswith("NPWD")]].isnull().sum()
+    if data_na.sum() > 0:
+        logger.error("Null values in feature matrix")
+
+        for feature, na_count in data_na.iteritems():
+            if na_count > 0:
+                logger.error("{}: {:.1f}% null ({:,} / {:,})".format(feature, 100. * na_count / len(train_df), na_count, len(train_df)))
+
+        sys.exit(-1)
+
     # test stddevs
     train_std = train_df.std()
     for feature, std in train_std.iteritems():
@@ -370,10 +364,11 @@ def verify_data(train_df, test_df, filename):
 
     deviant_df = pandas.DataFrame(numpy.hstack([train[train_deviant_rows], test[train_deviant_rows]]), columns=list(train_df.columns) + list(test_df.columns))
     if deviant_df.shape[0] > 0:
-        print "Found {:,} deviant rows, saving to {}".format(deviant_df.shape[0], filename)
+        logger.warn("Found {:,} deviant rows, saving to {}".format(deviant_df.shape[0], filename))
         deviant_df.to_csv(filename)
     else:
         print "No deviant rows"
+
 
 def main():
     args = parse_args()
@@ -397,13 +392,10 @@ def main():
     if args.feature_pairs:
         experiment_pairwise_features(X_train, Y_train, splits)
 
-    scaler = helpers.sk.ExtraRobustScaler()
-    # scaler = sklearn.preprocessing.RobustScaler()
-    pca = sklearn.decomposition.PCA(n_components=0.99, whiten=True)
-
+    scaler = make_scaler()
 
     feature_names = X_train.columns
-    X_train = pca.fit_transform(scaler.fit_transform(X_train))
+    X_train = scaler.fit_transform(X_train)
 
     # lower bound: predict mean
     baseline_model = sklearn.dummy.DummyRegressor("mean")
@@ -418,20 +410,22 @@ def main():
 
     # experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
-    experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
+    # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
     experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
-    if args.prediction_file != "-":
-        predict_test_data(X_train, Y_train, scaler, args)
+
+def make_scaler():
+    scaler = helpers.sk.ClippedRobustScaler()
+    pca = sklearn.decomposition.PCA(n_components=0.99, whiten=True)
+
+    preprocessing_pipeline = sklearn.pipeline.Pipeline([("scaler", scaler), ("pca", pca)])
+    return preprocessing_pipeline
 
 
 def make_blr():
     """Make a bagged linear regression model with reasonable default args"""
-    # pca = sklearn.decomposition.PCA(n_components=0.99, whiten=True)
     model = helpers.sk.MultivariateBaggingRegressor(LinearRegression(), max_samples=0.98, max_features=.8, n_estimators=30)
-
-    # return sklearn.pipeline.Pipeline([("pca", pca), ("blr", model)])
     return model
 
 @helpers.general.Timed
@@ -443,8 +437,8 @@ def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_par
 
     if args.analyse_hyperparameters and tune_params:
         bagging_params = {
-            "max_samples": helpers.sk.RandomizedSearchCV.uniform(0.8, 1.),
-            "max_features": helpers.sk.RandomizedSearchCV.uniform(20, X_train.shape[1])
+            "max_samples": helpers.sk.RandomizedSearchCV.uniform(0.85, 1.),
+            "max_features": helpers.sk.RandomizedSearchCV.uniform(0.5, 1.)
         }
         base_model = make_blr()
         model = helpers.sk.RandomizedSearchCV(base_model, bagging_params, n_iter=20, n_jobs=1, scoring=rms_error)
@@ -487,7 +481,7 @@ def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, 
             "n_estimators": scipy.stats.randint(20, 50),
             "max_depth": scipy.stats.randint(3, 6),
             "min_samples_leaf": scipy.stats.randint(10, 100),
-            "subsample": [0.9, 1.],
+            "subsample": [0.9],
             "max_features": scipy.stats.randint(8, X_train.shape[1])
         }
         wrapped_model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.GradientBoostingRegressor(), gb_hyperparams, n_iter=20, n_jobs=3, scoring=rms_error))
@@ -506,8 +500,9 @@ def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_para
 
     if args.analyse_hyperparameters and tune_params:
         ada_params = {
-            "learning_rate": scipy.stats.uniform(0.2, 1.),
-            "n_estimators": scipy.stats.randint(2, 10)
+            "learning_rate": scipy.stats.uniform(0.1, 1.),
+            "n_estimators": scipy.stats.randint(2, 10),
+            "loss": ["linear", "square"]
         }
         base_model = sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression(), loss="square")
         model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, ada_params, scoring=rms_error))
@@ -525,7 +520,6 @@ def make_rf():
 
 @helpers.general.Timed
 def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False):
-    # plain model
     model = make_rf()
     cross_validate(X_train, Y_train, model, splits)
 
@@ -546,6 +540,7 @@ def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune
         if args.analyse_feature_importance:
             print_feature_importances(feature_names, model.best_estimator_)
 
+
 def verify_splits(X, Y, splits):
     for i, (train, test) in enumerate(splits):
         # analyse train and test
@@ -556,67 +551,10 @@ def verify_splits(X, Y, splits):
         print "\tY[train].mean: ", Y[train].mean(axis=0)
         print "\tY[train].std: ", Y[train].std(axis=0).mean()
 
+
 def cross_validate(X_train, Y_train, model, splits):
     scores = sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits)
     print "{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std())
-
-
-def with_num_features(filename, X):
-    return filename.replace(".", ".{}_features.".format(X.shape[1]), 1)
-
-def with_model_name(filename, model):
-    return filename.replace(".", ".{}.".format(type(model).__name__), 1)
-
-
-def with_date(filename):
-    return filename.replace(".", ".{}.".format(datetime.datetime.now().strftime("%m_%d")), 1)
-
-
-def predict_test_data(X_train, Y_train, scaler, args):
-    # retrain baseline model as a sanity check
-    baseline_model = sklearn.dummy.DummyRegressor("mean")
-    baseline_model.fit(X_train, Y_train)
-
-    # retrain a model on the full data
-    model = make_nn()
-    model.fit(X_train, Y_train.values)
-
-    test_data = load_data(args.testing_dir)
-    X_test, Y_test = separate_output(test_data)
-    X_test = scaler.transform(X_test)
-
-    test_data[Y_train.columns] = model.predict(X_test)
-
-    verify_predictions(X_test, baseline_model, model)
-
-    # redo the index as unix timestamp
-    test_data.index = test_data.index.astype(numpy.int64) / 10 ** 6
-    test_data[Y_test.columns].to_csv(with_date(with_model_name(with_num_features(args.prediction_file, X_train), model)), index_label="ut_ms")
-
-
-def verify_predictions(X_test, baseline_model, model):
-    baseline_predictions = baseline_model.predict(X_test)
-    predictions = model.predict(X_test)
-
-    deltas = numpy.abs(predictions - baseline_predictions) / numpy.abs(baseline_predictions)
-    per_row = deltas.mean()
-
-    unusual_rows = ~(per_row < 5)
-    unusual_count = unusual_rows.sum()
-    if unusual_count > 0:
-        print "{:.1f}% ({:,} / {:,}) of rows have unusual predictions:".format(100. * unusual_count / predictions.shape[0], unusual_count, predictions.shape[0])
-
-        unusual_inputs = X_test[unusual_rows].reshape(-1, X_test.shape[1])
-        unusual_outputs = predictions[unusual_rows].reshape(-1, predictions.shape[1])
-
-        for i in xrange(unusual_inputs.shape[0]):
-            print "Input: ", unusual_inputs[i]
-            print "Output: ", unusual_outputs[i]
-
-    overall_delta = per_row.mean()
-    print "Average percent change from baseline predictions: {:.2f}%".format(100. * overall_delta)
-
-    assert overall_delta < 2
 
 
 def separate_output(dataframe, num_outputs=None):

@@ -53,13 +53,16 @@ class HelperTests(unittest.TestCase):
         pipe = sklearn.pipeline.Pipeline([("nn", helpers.neural.NnRegressor())])
         self.assertEqual("Pipeline(Nn)", helpers.sk.get_model_name(pipe))
 
+        # test format on pipeline
+        self.assertEqual("Pipeline_Nn", helpers.sk.get_model_name(pipe, format="{}_{}"))
+
 
 def _test_multivariate_regression(model, X, Y):
     model.fit(X, Y)
     return (model.predict(Y) - Y).mean().mean()
 
 
-def build_data(n):
+def _build_data(n):
     X = numpy.asarray(range(n))
 
     X = numpy.vstack((X, X + 1, X + 2, X + 3)).transpose()
@@ -69,7 +72,7 @@ def build_data(n):
 
 class ModelTests(unittest.TestCase):
     def test_nn_regression_model(self):
-        X, Y = build_data(100)
+        X, Y = _build_data(100)
         self.assertListEqual([100, 2], list(X.shape))
         self.assertListEqual([100, 2], list(Y.shape))
 
@@ -80,3 +83,33 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(Y.shape, Y_pred.shape)
         error = ((Y - Y_pred) ** 2).mean().mean()
         self.assertLess(error, 1.)
+
+    def test_build_data(self):
+        X, Y = _build_data(100)
+        self.assertListEqual([100, 2], list(X.shape))
+        self.assertListEqual([100, 2], list(Y.shape))
+
+    def test_bagging(self):
+        X, Y = _build_data(100)
+
+        import sklearn.linear_model
+        import sklearn.metrics
+
+        # test basic linear regression
+        baseline_model = sklearn.linear_model.LinearRegression().fit(X, Y)
+
+        Y_pred = baseline_model.predict(X)
+        self.assertEqual(Y.shape, Y_pred.shape)
+        baseline_error = sklearn.metrics.mean_squared_error(Y, Y_pred)
+        self.assertLess(baseline_error, 1.)
+
+        model = helpers.sk.MultivariateBaggingRegressor(base_estimator=sklearn.linear_model.LinearRegression(), max_samples=0.8, max_features=0.6)
+        model.fit(X, Y)
+
+        Y_pred = model.predict(X)
+        self.assertEqual(Y.shape, Y_pred.shape)
+        model_error = sklearn.metrics.mean_squared_error(Y, Y_pred)
+        self.assertLess(model_error, 1.)
+
+        # test that it's an improvement within some epsilon
+        self.assertLessEqual(model_error, baseline_error + 1e-6)

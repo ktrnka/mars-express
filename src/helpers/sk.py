@@ -1,7 +1,7 @@
 import collections
+import logging
 import math
 import numbers
-import unittest
 from operator import itemgetter
 
 import numpy
@@ -10,13 +10,13 @@ import scipy.optimize
 import scipy.stats
 import sklearn
 import sklearn.base
-import sklearn.utils.random
-import sklearn.metrics
 import sklearn.linear_model
-import logging
+import sklearn.metrics
+import sklearn.utils.random
 
 
 def _convert_scale(target_value, max_value):
+    """If target_value is float, mult with max_value otherwise take it straight"""
     if target_value <= 1:
         return int(max_value * target_value)
 
@@ -25,8 +25,10 @@ def _convert_scale(target_value, max_value):
     return target_value
 
 
-class SubspaceWrapper(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
+class SubspaceWrapper(sklearn.base.BaseEstimator):
+    """Train the nested estimator with a random subspace"""
     def __init__(self, base_estimator=None, max_samples=1.0, max_features=1.0):
+        # TODO: Add random seed
         self.base_estimator = base_estimator
         self.max_samples = max_samples
         self.max_features = max_features
@@ -58,6 +60,7 @@ class SubspaceWrapper(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
 
 
 class MultivariateBaggingRegressor(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
+    """Bagging model that will use an underlying multivariate regression model unlike sklearn bagging"""
     def __init__(self, base_estimator=None, n_estimators=10, max_samples=1.0, max_features=1.0):
         self.base_estimator = base_estimator
         self.n_estimators = n_estimators
@@ -86,44 +89,6 @@ class MultivariateBaggingRegressor(sklearn.base.BaseEstimator, sklearn.base.Regr
         assert len(result.shape) == 2
 
         return result
-
-
-def _build_data(n):
-    X = numpy.asarray(range(n))
-
-    X = numpy.vstack((X, X + 1, X + 2, X + 3)).transpose()
-
-    return X[:, :2], X[:, 2:]
-
-
-class ModelTests(unittest.TestCase):
-    def test_build_data(self):
-        X, Y = _build_data(100)
-        self.assertListEqual([100, 2], list(X.shape))
-        self.assertListEqual([100, 2], list(Y.shape))
-
-    def test_model(self):
-        X, Y = _build_data(100)
-
-        # test basic linear regression
-        baseline_model = sklearn.linear_model.LinearRegression().fit(X, Y)
-
-        Y_pred = baseline_model.predict(X)
-        self.assertEqual(Y.shape, Y_pred.shape)
-        baseline_error = sklearn.metrics.mean_squared_error(Y, Y_pred)
-        self.assertLess(baseline_error, 1.)
-
-        model = MultivariateBaggingRegressor(base_estimator=sklearn.linear_model.LinearRegression(), max_samples=0.8,
-                                             max_features=0.6)
-        model.fit(X, Y)
-
-        Y_pred = model.predict(X)
-        self.assertEqual(Y.shape, Y_pred.shape)
-        model_error = sklearn.metrics.mean_squared_error(Y, Y_pred)
-        self.assertLess(model_error, 1.)
-
-        # test that it's an improvement within some epsilon
-        self.assertLessEqual(model_error, baseline_error + 1e-6)
 
 
 class TimeSeriesRegressor(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
@@ -171,6 +136,8 @@ class MultivariateRegressionWrapper(sklearn.base.BaseEstimator):
     """
     Wrap a univariate regression model to support multivariate regression.
     Tweaked from http://stats.stackexchange.com/a/153892
+
+    Can remove once sklearn 0.8 is out
     """
 
     def __init__(self, estimator):
@@ -247,10 +214,6 @@ def print_tuning_scores(tuned_estimator, reverse=True):
                                                                           test.parameters)
 
 
-def mse_to_rms(scores):
-    return numpy.sqrt(numpy.abs(scores))
-
-
 def print_feature_importances(columns, classifier):
     """Show feature importances for a classifier that supports them like random forest or gradient boosting"""
     paired_features = zip(columns, classifier.feature_importances_)
@@ -271,11 +234,11 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
                                                                               scores.std(),
                                                                               test.parameters)
 
-        print "Linear hyperparameter correlations with evaluation metric"
+        print "Hyperparameter correlations with evaluation metric"
         for param, (stat_name, stat, pval) in self.correlate_hyperparameters().iteritems():
             print "\t{}: {} = {:.4f}, p = {:.4f}".format(param, stat_name, stat, pval)
 
-    def correlate_hyperparameters(self, fold_over_max=False):
+    def correlate_hyperparameters(self):
         param_scores = self._get_independent_scores()
 
         param_correlations = dict()
@@ -284,10 +247,6 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
                 # numeric params path: use Pearson
                 points = numpy.asarray(points)
                 assert points.shape[1] == 2
-
-                if fold_over_max:
-                    _, max_score_index = numpy.argmax(points, axis=0)
-                    points[:, 0] = numpy.abs(points[:, 0] - points[max_score_index, 0])
 
                 pearson_r, pearson_p = scipy.stats.pearsonr(points[:, 0], points[:, 1])
                 param_correlations[param_name] = ("Pearson r", pearson_r, pearson_p)
@@ -343,12 +302,14 @@ class LinearRegressionWrapper(sklearn.linear_model.LinearRegression):
         return super(LinearRegressionWrapper, self).predict(X)[:, numpy.newaxis]
 
 
-class ExtraRobustScaler(sklearn.preprocessing.RobustScaler):
+class ClippedRobustScaler(sklearn.preprocessing.RobustScaler):
     """Tweak on RobustScaler to clip values to -2 to 2 after reducing to IQR"""
-    clip_value = 2
+    def __init__(self, clip_value=2, *args, **kwargs):
+        super(ClippedRobustScaler, self).__init__(*args, **kwargs)
+        self.clip_value = clip_value
 
     def transform(self, X, y=None):
-        X = super(ExtraRobustScaler, self).transform(X, y)
+        X = super(ClippedRobustScaler, self).transform(X, y)
 
         # try to ensure that -1 to 1 is a nice linear range and squash a bit beyond that
         X[X > self.clip_value] = self.clip_value
@@ -362,6 +323,7 @@ class TimeCV(object):
     Cross-validation wrapper for time-series prediction, i.e., test only on extrapolations into the future.
     Assumes that the data is sorted chronologically.
     """
+    ## TODO: Figure out the correct sklearn superclass for this
 
     def __init__(self, num_rows, num_splits, min_training=0.5, test_splits=1, mirror=False, gap=0, balanced_tests=True):
         self.num_rows = int(num_rows)
@@ -433,6 +395,7 @@ class OutputTransformation(sklearn.base.BaseEstimator):
 
 
 def get_model_name(model, format="{}({})", remove={"Regressor", "Regression", "Classifier"}):
+    """Get a nice string for a sklearn model with nested sklearn models"""
     name = type(model).__name__
 
     if remove:
