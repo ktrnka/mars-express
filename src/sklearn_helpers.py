@@ -22,7 +22,7 @@ import sklearn
 import sklearn.grid_search
 import sklearn.linear_model
 import sklearn.utils
-
+import sklearn.metrics
 
 class TimeSeriesRegressor(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     def __init__(self):
@@ -134,12 +134,11 @@ class MultivariateRegressionWrapper(sklearn.base.BaseEstimator):
             print "\t{}: {:.3f} +/- {:.3f}".format(name, dist.mean(), dist.std())
 
 
-def print_tuning_scores(tuned_estimator, reverse=True, score_transformer=None):
+def print_tuning_scores(tuned_estimator, reverse=True):
     """Show the cross-validation scores and hyperparamters from a grid or random search"""
     for test in sorted(tuned_estimator.grid_scores_, key=itemgetter(1), reverse=reverse):
         scores = test.cv_validation_scores
-        if score_transformer:
-            scores = score_transformer(scores)
+
         print "Validation score {:.4f} +/- {:.4f}, Hyperparams {}".format(scores.mean(),
                                                                           scores.std(),
                                                                           test.parameters)
@@ -161,21 +160,19 @@ def print_feature_importances(columns, classifier):
 
 class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
     """Wrapper for sklearn RandomizedSearchCV that can run correlation analysis on hyperparameters"""
-    def print_tuning_scores(self, score_transformer=None, reverse=True):
+    def print_tuning_scores(self, reverse=True):
         for test in sorted(self.grid_scores_, key=itemgetter(1), reverse=reverse):
             scores = test.cv_validation_scores
-            if score_transformer:
-                scores = score_transformer(scores)
             print "Validation score {:.4f} +/- {:.4f}, Hyperparams {}".format(scores.mean(),
                                                                               scores.std(),
                                                                               test.parameters)
 
         print "Linear hyperparameter correlations with evaluation metric"
-        for param, (stat_name, stat, pval) in self.correlate_hyperparameters(score_transformer=score_transformer).iteritems():
+        for param, (stat_name, stat, pval) in self.correlate_hyperparameters().iteritems():
             print "\t{}: {} = {:.4f}, p = {:.4f}".format(param, stat_name, stat, pval)
 
-    def correlate_hyperparameters(self, score_transformer=None, fold_over_max=False):
-        param_scores = self._get_independent_scores(score_transformer)
+    def correlate_hyperparameters(self, fold_over_max=False):
+        param_scores = self._get_independent_scores()
 
         param_correlations = dict()
         for param_name, points in param_scores.iteritems():
@@ -201,13 +198,11 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
 
         return param_correlations
 
-    def _get_independent_scores(self, score_transformer):
+    def _get_independent_scores(self):
         param_scores = collections.defaultdict(list)
         param_counts = collections.defaultdict(collections.Counter)
         for test in self.grid_scores_:
             scores = test.cv_validation_scores
-            if score_transformer:
-                scores = score_transformer(scores)
 
             for name, value in test.parameters.iteritems():
                 param_counts[name][value] += 1
@@ -459,5 +454,7 @@ def fill_nan(a, method="mean"):
     return df.values
 
 
-def rms_error(y_true, y_pred):
-    return -numpy.square(y_true - y_pred).mean() ** 0.5
+def _rms_error(y_true, y_pred):
+    return numpy.square(y_true - y_pred).mean().mean() ** 0.5
+
+rms_error = sklearn.metrics.make_scorer(_rms_error, greater_is_better=False)

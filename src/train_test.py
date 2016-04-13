@@ -26,7 +26,7 @@ import sklearn.preprocessing
 import sklearn.svm
 import sklearn.metrics
 import sklearn_helpers
-from sklearn_helpers import MultivariateRegressionWrapper, mse_to_rms, print_feature_importances
+from sklearn_helpers import MultivariateRegressionWrapper, print_feature_importances, rms_error
 from helpers.multivariate import MultivariateBaggingRegressor
 from sklearn.linear_model import LinearRegression
 
@@ -307,11 +307,11 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_p
             "hidden_units": [25, 50, 75, 100]
         }
         model = make_nn()
-        wrapped_model = sklearn_helpers.RandomizedSearchCV(model, nn_hyperparams, n_iter=20, n_jobs=1, scoring="mean_squared_error")
+        wrapped_model = sklearn_helpers.RandomizedSearchCV(model, nn_hyperparams, n_iter=20, n_jobs=1, scoring=rms_error)
         # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
 
         wrapped_model.fit(X_train, Y_train)
-        wrapped_model.print_tuning_scores(score_transformer=mse_to_rms)
+        wrapped_model.print_tuning_scores()
 
 
 def score_feature(X_train, Y_train, splits):
@@ -319,7 +319,7 @@ def score_feature(X_train, Y_train, splits):
     X_train = scaler.fit_transform(X_train.values.reshape(-1, 1))
 
     model = sklearn.linear_model.LinearRegression()
-    return mse_to_rms(sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring="mean_squared_error", cv=splits)).mean()
+    return sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits).mean()
 
 def save_pairwise_score(name, X, Y, splits, threshold_score, feature_scores):
     score = score_feature(X, Y, splits)
@@ -427,7 +427,7 @@ def main():
 
 def make_blr():
     """Make a bagged linear regression model with reasonable default args"""
-    return MultivariateBaggingRegressor(LinearRegression(), max_samples=0.9, max_features=30, n_estimators=30)
+    return MultivariateBaggingRegressor(LinearRegression(), max_samples=0.98, max_features=28, n_estimators=30)
 
 @sklearn_helpers.Timed
 def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False):
@@ -442,7 +442,7 @@ def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_par
             "max_features": sklearn_helpers.RandomizedSearchCV.uniform(20, X_train.shape[1])
         }
         base_model = make_blr()
-        model = sklearn_helpers.RandomizedSearchCV(base_model, bagging_params, n_iter=20, n_jobs=1, scoring="mean_squared_error")
+        model = sklearn_helpers.RandomizedSearchCV(base_model, bagging_params, n_iter=20, n_jobs=1, scoring=rms_error)
         # cross_validate(X_train, Y_train, model, "RandomizedSearchCV(Bagging(LinearRegression))", splits)
 
         # refit on full data to get a single model and spit out the info
@@ -467,7 +467,7 @@ def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, 
             "subsample": [0.9, 1.],
             "max_features": scipy.stats.randint(8, X_train.shape[1])
         }
-        wrapped_model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.GradientBoostingRegressor(), gb_hyperparams, n_iter=20, n_jobs=3, scoring="mean_squared_error"))
+        wrapped_model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.GradientBoostingRegressor(), gb_hyperparams, n_iter=20, n_jobs=3, scoring=rms_error))
         cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(GradientBoostingRegressor)", splits)
 
         wrapped_model.fit(X_train, Y_train)
@@ -487,7 +487,7 @@ def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_para
             "n_estimators": scipy.stats.randint(2, 10)
         }
         base_model = sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression(), loss="square")
-        model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, ada_params, scoring="mean_squared_error"))
+        model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, ada_params, scoring=rms_error))
         cross_validate(X_train, Y_train, model, "RandomSearchCV(AdaBoost(LinearRegression))", splits)
 
         print "Refitting to show hyperparams"
@@ -513,12 +513,12 @@ def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune
             "max_features": scipy.stats.randint(8, X_train.shape[1]),
             "n_estimators": scipy.stats.randint(20, 30)
         }
-        wrapped_model = sklearn.grid_search.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3, scoring="mean_squared_error")
+        wrapped_model = sklearn.grid_search.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3, scoring=rms_error)
         cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(RandomForestRegression)", splits)
 
-        model = sklearn_helpers.RandomizedSearchCV(sklearn.ensemble.RandomForestRegressor(), rf_hyperparams, n_iter=10, n_jobs=3, cv=splits, scoring="mean_squared_error")
+        model = sklearn_helpers.RandomizedSearchCV(sklearn.ensemble.RandomForestRegressor(), rf_hyperparams, n_iter=10, n_jobs=3, cv=splits, scoring=rms_error)
         model.fit(X_train, Y_train)
-        model.print_tuning_scores(score_transformer=mse_to_rms)
+        model.print_tuning_scores()
 
         if args.analyse_feature_importance:
             print_feature_importances(feature_names, model.best_estimator_)
@@ -542,8 +542,8 @@ def cross_validate(X_train, Y_train, model, model_name, splits, diagnostics=Fals
             print "\tRMS: {}".format(error)
 
 
-    scores = mse_to_rms(sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring="mean_squared_error", cv=splits))
-    print "{}: {:.4f} +/- {:.4f}".format(model_name, scores.mean(), scores.std())
+    scores = sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits)
+    print "{}: {:.4f} +/- {:.4f}".format(model_name, -scores.mean(), scores.std())
 
 
 def with_num_features(filename, X):
