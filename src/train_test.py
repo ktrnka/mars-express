@@ -262,15 +262,15 @@ def make_nn():
 
     # fs = sklearn.feature_selection.RFE(LinearRegression(), n_features_to_select=50)
 
-    scaler = sklearn.preprocessing.StandardScaler()
+    pca = sklearn.decomposition.PCA(n_components=0.99, whiten=True)
 
     model = sklearn_helpers.NnRegressor(num_epochs=500,
                                         batch_size=200,
-                                        learning_rate=0.008,
-                                        dropout=0.5,
-                                        activation="sigmoid",
+                                        learning_rate=0.001,
+                                        dropout=0.4,
+                                        activation="tanh",
                                         input_noise=0.05,
-                                        hidden_units=100,
+                                        hidden_units=200,
                                         early_stopping=True,
                                         loss="mse",
                                         l2=0.0001,
@@ -278,9 +278,9 @@ def make_nn():
                                         assert_finite=False,
                                         verbose=0)
 
-    # return sklearn.pipeline.Pipeline([("fs", fs), ("nn", model)])
+    return sklearn.pipeline.Pipeline([("pca", pca), ("nn", model)])
 
-    return model
+    # return model
 
 @sklearn_helpers.Timed
 def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_pca=False):
@@ -292,22 +292,20 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_p
         X_train = sklearn.decomposition.PCA(n_components=0.99, whiten=True).fit_transform(X_train)
         print "PCA reduced number of features from {} to {}".format(original_shape[1], X_train.shape[1])
 
-    # X_train = sklearn.preprocessing.StandardScaler().fit_transform(X_train)
-
     model = make_nn()
-    cross_validate(X_train, Y_train, model, "NnRegressor", splits)
+    cross_validate(X_train, Y_train, model, splits)
 
     if args.analyse_hyperparameters and tune_params:
         print "Running hyperparam opt"
         nn_hyperparams = {
-            "input_noise": sklearn_helpers.RandomizedSearchCV.uniform(0., 0.1),
+            "input_noise": sklearn_helpers.RandomizedSearchCV.uniform(0., 0.2),
             "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
-            "learning_rate": sklearn_helpers.RandomizedSearchCV.exponential(0.05, 0.0005),
-            "activation": ["sigmoid", "elu", "relu", "tanh"],
-            "hidden_units": [25, 50, 75, 100]
+            "learning_rate": sklearn_helpers.RandomizedSearchCV.exponential(0.005, 0.0005),
+            "activation": ["sigmoid", "tanh"],
+            "hidden_units": [50, 100, 200, 400]
         }
         model = make_nn()
-        wrapped_model = sklearn_helpers.RandomizedSearchCV(model, nn_hyperparams, n_iter=20, n_jobs=1, scoring=rms_error)
+        wrapped_model = sklearn_helpers.RandomizedSearchCV(model, nn_hyperparams, n_iter=30, n_jobs=1, scoring=rms_error)
         # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
 
         wrapped_model.fit(X_train, Y_train)
@@ -400,24 +398,26 @@ def main():
 
     scaler = sklearn_helpers.ExtraRobustScaler()
     # scaler = sklearn.preprocessing.RobustScaler()
+    pca = sklearn.decomposition.PCA(n_components=0.99, whiten=True)
+
 
     feature_names = X_train.columns
-    X_train = scaler.fit_transform(X_train)
+    X_train = pca.fit_transform(scaler.fit_transform(X_train))
 
     # lower bound: predict mean
     baseline_model = sklearn.dummy.DummyRegressor("mean")
-    cross_validate(X_train, Y_train, baseline_model, "DummyRegressor(mean)", splits)
+    cross_validate(X_train, Y_train, baseline_model, splits)
 
     model = sklearn.linear_model.LinearRegression()
-    cross_validate(X_train, Y_train, model, "LinearRegression", splits)
+    cross_validate(X_train, Y_train, model, splits)
 
-    experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=True)
+    experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
 
     experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
     # experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
-    # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
+    experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
     experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
@@ -427,14 +427,18 @@ def main():
 
 def make_blr():
     """Make a bagged linear regression model with reasonable default args"""
-    return MultivariateBaggingRegressor(LinearRegression(), max_samples=0.98, max_features=28, n_estimators=30)
+    # pca = sklearn.decomposition.PCA(n_components=0.99, whiten=True)
+    model = MultivariateBaggingRegressor(LinearRegression(), max_samples=0.98, max_features=.8, n_estimators=30)
+
+    # return sklearn.pipeline.Pipeline([("pca", pca), ("blr", model)])
+    return model
 
 @sklearn_helpers.Timed
 def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False):
     Y_train = Y_train.values
 
     model = make_blr()
-    cross_validate(X_train, Y_train, model, "Bagging(LinearRegression)", splits)
+    cross_validate(X_train, Y_train, model, splits)
 
     if args.analyse_hyperparameters and tune_params:
         bagging_params = {
@@ -450,13 +454,31 @@ def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_par
         model.print_tuning_scores()
 
 
+@sklearn_helpers.Timed
+def experiment_output_transform(X_train, Y_train, args, splits):
+    Y_train = Y_train.values
+
+    base_model = make_rf()
+    cross_validate(X_train, Y_train, base_model, splits)
+
+    # standard scaler
+    output_transformer = sklearn.preprocessing.StandardScaler()
+    model = sklearn_helpers.OutputTransformation(base_model, output_transformer)
+    cross_validate(X_train, Y_train, model, splits)
+
+    # PCA
+    output_transformer = sklearn.decomposition.PCA(n_components=0.999, whiten=True)
+    model = sklearn_helpers.OutputTransformation(base_model, output_transformer)
+    cross_validate(X_train, Y_train, model, splits)
+
+
 def make_gb():
     return MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor(max_features=30, n_estimators=40, subsample=0.9, learning_rate=0.3, max_depth=4, min_samples_leaf=50))
 
 @sklearn_helpers.Timed
 def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=False):
     model = make_gb()
-    cross_validate(X_train, Y_train, model, "GradientBoostingRegressor", splits)
+    cross_validate(X_train, Y_train, model, splits)
 
     if args.analyse_hyperparameters and tune_params:
         gb_hyperparams = {
@@ -468,7 +490,7 @@ def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, 
             "max_features": scipy.stats.randint(8, X_train.shape[1])
         }
         wrapped_model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.GradientBoostingRegressor(), gb_hyperparams, n_iter=20, n_jobs=3, scoring=rms_error))
-        cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(GradientBoostingRegressor)", splits)
+        cross_validate(X_train, Y_train, wrapped_model, splits)
 
         wrapped_model.fit(X_train, Y_train)
         wrapped_model.print_best_params()
@@ -479,7 +501,7 @@ def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, 
 
 def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False):
     model = MultivariateRegressionWrapper(sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression(), n_estimators=4, learning_rate=0.5, loss="square"))
-    cross_validate(X_train, Y_train, model, "AdaBoost(LinearRegression)", splits)
+    cross_validate(X_train, Y_train, model, splits)
 
     if args.analyse_hyperparameters and tune_params:
         ada_params = {
@@ -488,7 +510,7 @@ def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_para
         }
         base_model = sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression(), loss="square")
         model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, ada_params, scoring=rms_error))
-        cross_validate(X_train, Y_train, model, "RandomSearchCV(AdaBoost(LinearRegression))", splits)
+        cross_validate(X_train, Y_train, model, splits)
 
         print "Refitting to show hyperparams"
         model.fit(X_train, Y_train)
@@ -497,14 +519,14 @@ def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_para
 
 def make_rf():
     """Make a random forest model with reasonable default args"""
-    return sklearn.ensemble.RandomForestRegressor(25, min_samples_leaf=100, max_depth=10, max_features=15)
+    return sklearn.ensemble.RandomForestRegressor(25, min_samples_leaf=100, max_depth=10, max_features=.8)
 
 
 @sklearn_helpers.Timed
 def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False):
     # plain model
     model = make_rf()
-    cross_validate(X_train, Y_train, model, "RandomForestRegressor", splits)
+    cross_validate(X_train, Y_train, model, splits)
 
     if args.analyse_hyperparameters and tune_params:
         rf_hyperparams = {
@@ -514,7 +536,7 @@ def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune
             "n_estimators": scipy.stats.randint(20, 30)
         }
         wrapped_model = sklearn.grid_search.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3, scoring=rms_error)
-        cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(RandomForestRegression)", splits)
+        cross_validate(X_train, Y_train, wrapped_model, splits)
 
         model = sklearn_helpers.RandomizedSearchCV(sklearn.ensemble.RandomForestRegressor(), rf_hyperparams, n_iter=10, n_jobs=3, cv=splits, scoring=rms_error)
         model.fit(X_train, Y_train)
@@ -523,27 +545,19 @@ def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune
         if args.analyse_feature_importance:
             print_feature_importances(feature_names, model.best_estimator_)
 
+def verify_splits(X, Y, splits):
+    for i, (train, test) in enumerate(splits):
+        # analyse train and test
+        print "Split {}".format(i)
 
-def cross_validate(X_train, Y_train, model, model_name, splits, diagnostics=False):
-    if diagnostics:
-        for i, (train, test) in enumerate(splits):
-            # analyse train and test
-            print "Split {}".format(i)
+        print "\tX[train].mean diff: ", X[train].mean(axis=0) - X.mean(axis=0)
+        print "\tX[train].std diffs: ", X[train].std(axis=0) - X.std(axis=0)
+        print "\tY[train].mean: ", Y[train].mean(axis=0)
+        print "\tY[train].std: ", Y[train].std(axis=0).mean()
 
-            print "\tX[train].mean diff: ", X_train[train].mean(axis=0) - X_train.mean(axis=0)
-            print "\tX[train].std diffs: ", X_train[train].std(axis=0) - X_train.std(axis=0)
-            print "\tY[train].mean: ", Y_train[train].mean(axis=0)
-            print "\tY[train].std: ", Y_train[train].std(axis=0).mean()
-
-            model.fit(X_train[train], Y_train[train])
-            predictions = model.predict(X_train[test])
-            error = sklearn.metrics.mean_squared_error(Y_train[test], predictions) ** 0.5
-
-            print "\tRMS: {}".format(error)
-
-
+def cross_validate(X_train, Y_train, model, splits):
     scores = sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits)
-    print "{}: {:.4f} +/- {:.4f}".format(model_name, -scores.mean(), scores.std())
+    print "{}: {:.4f} +/- {:.4f}".format(sklearn_helpers.get_model_name(model), -scores.mean(), scores.std())
 
 
 def with_num_features(filename, X):

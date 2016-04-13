@@ -458,3 +458,37 @@ def _rms_error(y_true, y_pred):
     return numpy.square(y_true - y_pred).mean().mean() ** 0.5
 
 rms_error = sklearn.metrics.make_scorer(_rms_error, greater_is_better=False)
+
+
+class OutputTransformation(sklearn.base.BaseEstimator):
+    """
+    Wraps an estimator such that the outputs are transformed by transformer before fitting and inverse transformed
+    on predicting. This can be used with StandardScaler to remove the scale of outputs or can be used to augment the
+    outputs.
+    """
+    def __init__(self, model, transformer):
+        self.estimator = model
+        self.transformer = transformer
+
+    def fit(self, X, Y):
+        self.transformer.fit(Y)
+        self.estimator.fit(X, self.transformer.transform(Y))
+
+        return self
+
+    def predict(self, X):
+        return self.transformer.inverse_transform(self.estimator.predict(X))
+
+def get_model_name(model):
+    name = type(model).__name__
+    format = "{}({})"
+
+    try:
+        nested_name = get_model_name(model.estimator)
+        return format.format(name, nested_name)
+    except AttributeError:
+        try:
+            nested_name = get_model_name(model.base_estimator)
+            return format.format(name, nested_name)
+        except AttributeError:
+            return name

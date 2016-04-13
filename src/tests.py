@@ -6,7 +6,7 @@ import numpy
 import pandas
 import sklearn_helpers
 import train_test
-
+import helpers.multivariate
 
 def _test_multivariate_regression(model, X, Y):
     model.fit(X, Y)
@@ -57,6 +57,21 @@ class HelperTests(unittest.TestCase):
 
         for train, test in splits:
             self.assertEqual(4912, len(test))
+
+    def test_get_name(self):
+        model = sklearn_helpers.NnRegressor()
+        self.assertEqual("NnRegressor", sklearn_helpers.get_model_name(model))
+
+        model = sklearn_helpers.MultivariateRegressionWrapper(sklearn_helpers.NnRegressor())
+        self.assertEqual("MultivariateRegressionWrapper(NnRegressor)", sklearn_helpers.get_model_name(model))
+
+        # test bagging
+        model = helpers.multivariate.MultivariateBaggingRegressor(sklearn_helpers.NnRegressor())
+        self.assertEqual("MultivariateBaggingRegressor(NnRegressor)", sklearn_helpers.get_model_name(model))
+
+        # test random search
+        model = sklearn_helpers.RandomizedSearchCV(sklearn_helpers.NnRegressor(), {"dropout": [0.4, 0.5]})
+        self.assertEqual("RandomizedSearchCV(NnRegressor)", sklearn_helpers.get_model_name(model))
 
 class UmbraTests(unittest.TestCase):
     def _make_time(self, start_time, duration_minutes=30):
