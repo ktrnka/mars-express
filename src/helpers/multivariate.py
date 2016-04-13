@@ -28,8 +28,15 @@ class SubspaceWrapper(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         self.estimator_ = None
 
     def fit(self, X, Y):
+        assert isinstance(X, numpy.ndarray)
+        assert isinstance(Y, numpy.ndarray)
+
         rows = sklearn.utils.random.sample_without_replacement(X.shape[0], _convert_scale(self.max_samples, X.shape[0]))
         self.cols_ = sklearn.utils.random.sample_without_replacement(X.shape[1], _convert_scale(self.max_features, X.shape[1]))
+
+        self.logger_.debug("X.shape: %s", X.shape)
+        self.logger_.debug("Y.shape: %s", Y.shape)
+        self.logger_.debug("Selecting %d x %d subspace", len(rows), len(self.cols_))
 
         self.logger_.debug("Rows for %f: %s", self.max_samples, rows)
         self.logger_.debug("Cols for %f: %s", self.max_features, self.cols_)
@@ -38,6 +45,7 @@ class SubspaceWrapper(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
         return self
 
     def predict(self, X):
+        assert isinstance(X, numpy.ndarray)
         return self.estimator_.predict(X[:, self.cols_])
 
 

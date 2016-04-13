@@ -5,11 +5,14 @@ import collections
 import sys
 from operator import itemgetter
 
+import datetime
+
 import numpy
 import os
 import pandas
 import scipy.optimize
 import scipy.stats
+import logging
 import sklearn
 import sklearn.cross_validation
 import sklearn.decomposition
@@ -24,6 +27,8 @@ import sklearn.svm
 import sklearn.metrics
 import sklearn_helpers
 from sklearn_helpers import MultivariateRegressionWrapper, mse_to_rms, print_feature_importances
+from helpers.multivariate import MultivariateBaggingRegressor
+from sklearn.linear_model import LinearRegression
 
 
 def parse_args():
@@ -111,7 +116,7 @@ def load_series(files, add_file_number=False, resample_interval=None, date_cols=
     return pandas.concat(data)
 
 
-def load_data(data_dir, resample_interval=None, filter_null_power=False):
+def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
     # load the base power data
     data = load_series(find_files(data_dir, "power"), add_file_number=True, resample_interval=resample_interval)
 
@@ -155,8 +160,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False):
     event_data["EVTF_event_counts"] = 1
     event_data = event_data.resample("1H").count().reindex(data.index, method="nearest")
     event_data["EVTF_altitude"] = altitude_series
-    add_lag_feature(event_data, "event_counts", 2, "2h", data_type=numpy.int64)
-    add_lag_feature(event_data, "event_counts", 5, "5h", data_type=numpy.int64)
+    add_lag_feature(event_data, "EVTF_event_counts", 2, "2h", data_type=numpy.int64)
+    add_lag_feature(event_data, "EVTF_event_counts", 5, "5h", data_type=numpy.int64)
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
@@ -164,7 +169,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False):
     dmop_data["DMOP_event_counts"] = 1
     dmop_data = dmop_data.resample("1H").count().reindex(data.index, method="nearest")
     add_lag_feature(dmop_data, "DMOP_event_counts", 2, "2h", data_type=numpy.int64)
-    add_lag_feature(dmop_data, "DMOP_event_counts", 5, "2h", data_type=numpy.int64)
+    add_lag_feature(dmop_data, "DMOP_event_counts", 5, "5h", data_type=numpy.int64)
 
     ### SAAF ###
     saaf_data = load_series(find_files(data_dir, "saaf"))
@@ -182,6 +187,16 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False):
             print "Reduced data from {:,} rows to {:,}".format(previous_size, data.shape[0])
 
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
+
+    if derived_features:
+        for col in [c for c in data.columns if "EVTF_IN_MRB" in c]:
+            add_transformation_feature(data, col, "gradient")
+        add_transformation_feature(data, "FTL_EARTH_rolling_1h", "gradient")
+        add_transformation_feature(data, "DMOP_event_counts", "log", drop=True)
+        add_transformation_feature(data, "DMOP_event_counts_rolling_2h", "gradient", drop=True)
+        add_transformation_feature(data, "occultationduration_min", "log", drop=True)
+        add_transformation_feature(data, "sy", "log", drop=True)
+        add_transformation_feature(data, "sa", "log", drop=True)
 
     # simple check on NaN
     data_na = data[[c for c in data.columns if not c.startswith("NPWD")]].isnull().sum()
@@ -243,17 +258,19 @@ def compute_upper_bounds(data):
 def make_nn():
     """Make a neural network model with reasonable default args"""
     # feature_selector = sklearn.feature_selection.VarianceThreshold(.9 * .1)
-    feature_selector = sklearn.feature_selection.SelectFromModel(sklearn.linear_model.LinearRegression(), threshold="1.5*mean", prefit=False)
+    fs = sklearn.feature_selection.SelectFromModel(sklearn.linear_model.LinearRegression(), threshold="0.05*mean", prefit=False)
+
+    # fs = sklearn.feature_selection.RFE(LinearRegression(), n_features_to_select=50)
 
     scaler = sklearn.preprocessing.StandardScaler()
 
     model = sklearn_helpers.NnRegressor(num_epochs=500,
                                         batch_size=200,
-                                        learning_rate=0.05,
+                                        learning_rate=0.008,
                                         dropout=0.5,
                                         activation="sigmoid",
                                         input_noise=0.05,
-                                        hidden_units=25,
+                                        hidden_units=100,
                                         early_stopping=True,
                                         loss="mse",
                                         l2=0.0001,
@@ -261,7 +278,7 @@ def make_nn():
                                         assert_finite=False,
                                         verbose=0)
 
-    # return sklearn.pipeline.Pipeline([("nn", model)])
+    # return sklearn.pipeline.Pipeline([("fs", fs), ("nn", model)])
 
     return model
 
@@ -394,7 +411,7 @@ def main():
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, "LinearRegression", splits)
 
-    # experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
+    experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=True)
 
     experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
@@ -402,7 +419,7 @@ def main():
 
     # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
-    # experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
+    experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
     if args.prediction_file != "-":
         predict_test_data(X_train, Y_train, scaler, args)
@@ -410,25 +427,27 @@ def main():
 
 def make_blr():
     """Make a bagged linear regression model with reasonable default args"""
-    return MultivariateRegressionWrapper(sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), max_samples=0.9, max_features=30, n_estimators=30))
+    return MultivariateBaggingRegressor(LinearRegression(), max_samples=0.9, max_features=30, n_estimators=30)
 
 @sklearn_helpers.Timed
 def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False):
+    Y_train = Y_train.values
+
     model = make_blr()
     cross_validate(X_train, Y_train, model, "Bagging(LinearRegression)", splits)
 
     if args.analyse_hyperparameters and tune_params:
         bagging_params = {
             "max_samples": sklearn_helpers.RandomizedSearchCV.uniform(0.8, 1.),
-            "max_features": sklearn_helpers.RandomizedSearchCV.uniform(8, X_train.shape[1] + 1)
+            "max_features": sklearn_helpers.RandomizedSearchCV.uniform(20, X_train.shape[1])
         }
-        base_model = sklearn.ensemble.BaggingRegressor(sklearn.linear_model.LinearRegression(), n_estimators=30)
-        model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, bagging_params, n_iter=20, n_jobs=1, scoring="mean_squared_error"))
-        cross_validate(X_train, Y_train, model, "RandomizedSearchCV(Bagging(LinearRegression))", splits)
+        base_model = make_blr()
+        model = sklearn_helpers.RandomizedSearchCV(base_model, bagging_params, n_iter=20, n_jobs=1, scoring="mean_squared_error")
+        # cross_validate(X_train, Y_train, model, "RandomizedSearchCV(Bagging(LinearRegression))", splits)
 
         # refit on full data to get a single model and spit out the info
         model.fit(X_train, Y_train)
-        model.print_best_params()
+        model.print_tuning_scores()
 
 
 def make_gb():
@@ -436,7 +455,7 @@ def make_gb():
 
 @sklearn_helpers.Timed
 def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=False):
-    model = MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor(max_features=30, n_estimators=40, subsample=0.9, learning_rate=0.3, max_depth=4, min_samples_leaf=50))
+    model = make_gb()
     cross_validate(X_train, Y_train, model, "GradientBoostingRegressor", splits)
 
     if args.analyse_hyperparameters and tune_params:
@@ -527,6 +546,17 @@ def cross_validate(X_train, Y_train, model, model_name, splits, diagnostics=Fals
     print "{}: {:.4f} +/- {:.4f}".format(model_name, scores.mean(), scores.std())
 
 
+def with_num_features(filename, X):
+    return filename.replace(".", ".{}_features.".format(X.shape[1]), 1)
+
+def with_model_name(filename, model):
+    return filename.replace(".", ".{}.".format(type(model).__name__), 1)
+
+
+def with_date(filename):
+    return filename.replace(".", ".{}.".format(datetime.datetime.now().strftime("%m_%d")), 1)
+
+
 def predict_test_data(X_train, Y_train, scaler, args):
     # retrain baseline model as a sanity check
     baseline_model = sklearn.dummy.DummyRegressor("mean")
@@ -546,7 +576,7 @@ def predict_test_data(X_train, Y_train, scaler, args):
 
     # redo the index as unix timestamp
     test_data.index = test_data.index.astype(numpy.int64) / 10 ** 6
-    test_data[Y_test.columns].to_csv(args.prediction_file, index_label="ut_ms")
+    test_data[Y_test.columns].to_csv(with_date(with_model_name(with_num_features(args.prediction_file, X_train), model)), index_label="ut_ms")
 
 
 def verify_predictions(X_test, baseline_model, model):

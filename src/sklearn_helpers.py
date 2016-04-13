@@ -161,9 +161,6 @@ def print_feature_importances(columns, classifier):
 
 class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
     """Wrapper for sklearn RandomizedSearchCV that can run correlation analysis on hyperparameters"""
-    def __init__(self, *args, **kwargs):
-        super(RandomizedSearchCV, self).__init__(*args, **kwargs)
-
     def print_tuning_scores(self, score_transformer=None, reverse=True):
         for test in sorted(self.grid_scores_, key=itemgetter(1), reverse=reverse):
             scores = test.cv_validation_scores
@@ -460,3 +457,7 @@ def fill_nan(a, method="mean"):
     print "Replacing {:,} / {:,} null values in {}".format(nan_count, df.shape[0] * df.shape[1], df.shape)
     df = df.fillna(df.mean())
     return df.values
+
+
+def rms_error(y_true, y_pred):
+    return -numpy.square(y_true - y_pred).mean() ** 0.5
