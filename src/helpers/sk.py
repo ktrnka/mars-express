@@ -1,28 +1,130 @@
-from __future__ import unicode_literals
-
 import collections
 import math
 import numbers
-import time
+import unittest
 from operator import itemgetter
 
-import keras.callbacks
-import keras.constraints
-import keras.layers.advanced_activations
-import keras.layers.noise
-import keras.layers.normalization
-import keras.models
-import keras.optimizers
-import keras.regularizers
 import numpy
 import pandas
 import scipy.optimize
 import scipy.stats
 import sklearn
-import sklearn.grid_search
-import sklearn.linear_model
-import sklearn.utils
+import sklearn.base
+import sklearn.utils.random
 import sklearn.metrics
+import sklearn.linear_model
+import logging
+
+
+def _convert_scale(target_value, max_value):
+    if target_value <= 1:
+        return int(max_value * target_value)
+
+    assert target_value <= max_value
+
+    return target_value
+
+
+class SubspaceWrapper(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
+    def __init__(self, base_estimator=None, max_samples=1.0, max_features=1.0):
+        self.base_estimator = base_estimator
+        self.max_samples = max_samples
+        self.max_features = max_features
+
+        self.logger_ = logging.getLogger("SubspaceWrapper")
+        self.cols_ = None
+        self.estimator_ = None
+
+    def fit(self, X, Y):
+        assert isinstance(X, numpy.ndarray)
+        assert isinstance(Y, numpy.ndarray)
+
+        rows = sklearn.utils.random.sample_without_replacement(X.shape[0], _convert_scale(self.max_samples, X.shape[0]))
+        self.cols_ = sklearn.utils.random.sample_without_replacement(X.shape[1], _convert_scale(self.max_features, X.shape[1]))
+
+        self.logger_.debug("X.shape: %s", X.shape)
+        self.logger_.debug("Y.shape: %s", Y.shape)
+        self.logger_.debug("Selecting %d x %d subspace", len(rows), len(self.cols_))
+
+        self.logger_.debug("Rows for %f: %s", self.max_samples, rows)
+        self.logger_.debug("Cols for %f: %s", self.max_features, self.cols_)
+
+        self.estimator_ = sklearn.base.clone(self.base_estimator).fit(X[rows][:, self.cols_], Y[rows])
+        return self
+
+    def predict(self, X):
+        assert isinstance(X, numpy.ndarray)
+        return self.estimator_.predict(X[:, self.cols_])
+
+
+class MultivariateBaggingRegressor(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
+    def __init__(self, base_estimator=None, n_estimators=10, max_samples=1.0, max_features=1.0):
+        self.base_estimator = base_estimator
+        self.n_estimators = n_estimators
+        self.max_samples = max_samples
+        self.max_features = max_features
+
+        self.logger = logging.getLogger("MultivariateBaggingRegressor")
+        self.estimators_ = None
+
+    def _get_estimator(self):
+        return SubspaceWrapper(self.base_estimator, self.max_samples, self.max_features)
+
+    def fit(self, X, Y):
+        assert len(Y.shape) == 2
+
+        self.estimators_ = [self._get_estimator().fit(X, Y) for _ in xrange(self.n_estimators)]
+        return self
+
+    def predict(self, X):
+        result = numpy.dstack([estimator.predict(X) for estimator in self.estimators_])
+
+        assert len(result.shape) == 3
+        assert result.shape[0] == X.shape[0]
+
+        result = result.mean(axis=2)
+        assert len(result.shape) == 2
+
+        return result
+
+
+def _build_data(n):
+    X = numpy.asarray(range(n))
+
+    X = numpy.vstack((X, X + 1, X + 2, X + 3)).transpose()
+
+    return X[:, :2], X[:, 2:]
+
+
+class ModelTests(unittest.TestCase):
+    def test_build_data(self):
+        X, Y = _build_data(100)
+        self.assertListEqual([100, 2], list(X.shape))
+        self.assertListEqual([100, 2], list(Y.shape))
+
+    def test_model(self):
+        X, Y = _build_data(100)
+
+        # test basic linear regression
+        baseline_model = sklearn.linear_model.LinearRegression().fit(X, Y)
+
+        Y_pred = baseline_model.predict(X)
+        self.assertEqual(Y.shape, Y_pred.shape)
+        baseline_error = sklearn.metrics.mean_squared_error(Y, Y_pred)
+        self.assertLess(baseline_error, 1.)
+
+        model = MultivariateBaggingRegressor(base_estimator=sklearn.linear_model.LinearRegression(), max_samples=0.8,
+                                             max_features=0.6)
+        model.fit(X, Y)
+
+        Y_pred = model.predict(X)
+        self.assertEqual(Y.shape, Y_pred.shape)
+        model_error = sklearn.metrics.mean_squared_error(Y, Y_pred)
+        self.assertLess(model_error, 1.)
+
+        # test that it's an improvement within some epsilon
+        self.assertLessEqual(model_error, baseline_error + 1e-6)
+
 
 class TimeSeriesRegressor(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     def __init__(self):
@@ -70,6 +172,7 @@ class MultivariateRegressionWrapper(sklearn.base.BaseEstimator):
     Wrap a univariate regression model to support multivariate regression.
     Tweaked from http://stats.stackexchange.com/a/153892
     """
+
     def __init__(self, estimator):
         self.estimator = estimator
         self.estimators_ = None
@@ -160,6 +263,7 @@ def print_feature_importances(columns, classifier):
 
 class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
     """Wrapper for sklearn RandomizedSearchCV that can run correlation analysis on hyperparameters"""
+
     def print_tuning_scores(self, reverse=True):
         for test in sorted(self.grid_scores_, key=itemgetter(1), reverse=reverse):
             scores = test.cv_validation_scores
@@ -231,142 +335,18 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
 
 class LinearRegressionWrapper(sklearn.linear_model.LinearRegression):
     """Wrapper for LinearRegression that's compatible with GradientBoostingClassifier sample_weights"""
+
     def fit(self, X, y, sample_weight, **kwargs):
         super(LinearRegressionWrapper, self).fit(X, y, **kwargs)
 
     def predict(self, X):
         return super(LinearRegressionWrapper, self).predict(X)[:, numpy.newaxis]
 
-_he_activations = {"relu"}
-
-class NnRegressor(sklearn.base.BaseEstimator):
-    """Wrapper for Keras feed-forward neural network for regression to enable scikit-learn grid search"""
-
-    def __init__(self, hidden_layer_sizes=(100,), hidden_units=None, dropout=0.5, batch_size=-1, loss="mse", num_epochs=500, activation="relu", input_noise=0., learning_rate=0.001, verbose=0, init=None, l2=None, batch_norm=False, early_stopping=False, clip_gradient_norm=None, assert_finite=True,
-                 maxnorm=False):
-        self.clip_gradient_norm = clip_gradient_norm
-        self.assert_finite = assert_finite
-        if hidden_units:
-            self.hidden_layer_sizes = (hidden_units,)
-        else:
-            self.hidden_layer_sizes = hidden_layer_sizes
-        self.dropout = dropout
-        self.batch_size = batch_size
-        self.num_epochs = num_epochs
-        self.activation = activation
-        self.input_noise = input_noise
-        self.learning_rate = learning_rate
-        self.verbose = verbose
-        self.loss = loss
-        self.l2 = l2
-        self.batch_norm = batch_norm
-        self.early_stopping = early_stopping
-        self.init = self._get_default_init(init, activation)
-        self.use_maxnorm = maxnorm
-
-        self.model_ = None
-
-    def _get_activation(self):
-        if self.activation == "elu":
-            return keras.layers.advanced_activations.ELU()
-        else:
-            return keras.layers.core.Activation(self.activation)
-
-    def fit(self, X, y, **kwargs):
-        self.set_params(**kwargs)
-
-        if self.verbose >= 1:
-            print "Fitting input shape {}, output shape {}".format(X.shape, y.shape)
-
-        model = keras.models.Sequential()
-
-        # optional input noise
-        if self.input_noise > 0:
-            model.add(keras.layers.noise.GaussianNoise(self.input_noise, input_shape=X.shape[1:]))
-
-        dense_kwargs = self._get_dense_layer_kwargs()
-
-        # hidden layers
-        for layer_size in self.hidden_layer_sizes:
-            model.add(keras.layers.core.Dense(output_dim=layer_size, **dense_kwargs))
-            if self.batch_norm:
-                model.add(keras.layers.normalization.BatchNormalization())
-            model.add(self._get_activation())
-
-            if self.dropout:
-                model.add(keras.layers.core.Dropout(self.dropout))
-
-        # output layer
-        model.add(keras.layers.core.Dense(output_dim=y.shape[1], **dense_kwargs))
-
-        optimizer = keras.optimizers.Adam(**self._get_optimizer_kwargs())
-        model.compile(loss=self.loss, optimizer=optimizer)
-
-        model.fit(X, y, nb_epoch=self.num_epochs, **self._get_fit_kwargs(X))
-
-        self.model_ = model
-        return self
-
-    def _get_dense_layer_kwargs(self):
-        """Apply settings to dense layer keyword args"""
-        dense_kwargs = {"init": self.init}
-        if self.l2:
-            dense_kwargs["W_regularizer"] = keras.regularizers.l2(self.l2)
-
-        if self.use_maxnorm:
-            dense_kwargs["W_constraint"] = keras.constraints.MaxNorm(2)
-            dense_kwargs["b_constraint"] = keras.constraints.MaxNorm(2)
-
-        return dense_kwargs
-
-    def _get_fit_kwargs(self, X):
-        """Apply settings to the fit function keyword args"""
-        kwargs = {"verbose": self.verbose, "callbacks": []}
-
-        if self.early_stopping:
-            es = keras.callbacks.EarlyStopping(monitor="loss", patience=self.num_epochs / 20, verbose=self.verbose, mode="min")
-            kwargs["callbacks"].append(es)
-
-        kwargs["batch_size"] = self.batch_size
-        if kwargs["batch_size"] < 0 or kwargs["batch_size"] > X.shape[0]:
-            kwargs["batch_size"] = X.shape[0]
-
-        return kwargs
-
-    def count_params(self):
-        return self.model_.count_params()
-
-    def predict(self, X):
-        Y = self.model_.predict(X)
-
-        if self.assert_finite:
-            sklearn.utils.assert_all_finite(Y)
-        else:
-            Y = numpy.nan_to_num(Y)
-
-        return Y
-
-    def _get_default_init(self, init, activation):
-        if init:
-            return init
-
-        if activation in _he_activations:
-            return "he_uniform"
-
-        return "glorot_uniform"
-
-    def _get_optimizer_kwargs(self):
-        kwargs = {"lr": self.learning_rate}
-
-        if self.clip_gradient_norm:
-            kwargs["clipnorm"] = self.clip_gradient_norm
-
-        return kwargs
-
 
 class ExtraRobustScaler(sklearn.preprocessing.RobustScaler):
     """Tweak on RobustScaler to clip values to -2 to 2 after reducing to IQR"""
     clip_value = 2
+
     def transform(self, X, y=None):
         X = super(ExtraRobustScaler, self).transform(X, y)
 
@@ -376,34 +356,13 @@ class ExtraRobustScaler(sklearn.preprocessing.RobustScaler):
 
         return X
 
-def number_string(number, singular_unit, plural_unit, format_string="{} {}"):
-    return format_string.format(number, singular_unit if number == 1 else plural_unit)
-
-
-class Timed(object):
-    """Decorator for timing how long a function takes"""
-    def __init__(self, func):
-        self.func = func
-
-    def __call__(self, *args, **kwargs):
-        start_time = time.time()
-        self.func(*args, **kwargs)
-        elapsed = time.time() - start_time
-
-        hours, seconds = divmod(elapsed, 60 * 60)
-        minutes = seconds / 60.
-        time_string = number_string(minutes, "minute", "minutes", format_string="{:.1f} {}")
-        if hours:
-            time_string = ", ".join((number_string(hours, "hour", "hours"), time_string))
-
-        print "{} took {}".format(self.func.__name__, time_string)
-
 
 class TimeCV(object):
     """
     Cross-validation wrapper for time-series prediction, i.e., test only on extrapolations into the future.
     Assumes that the data is sorted chronologically.
     """
+
     def __init__(self, num_rows, num_splits, min_training=0.5, test_splits=1, mirror=False, gap=0, balanced_tests=True):
         self.num_rows = int(num_rows)
         self.num_splits = int(num_splits)
@@ -445,17 +404,9 @@ class TimeCV(object):
                     yield list(self.num_rows - train_index - 1), list(self.num_rows - test_index - 1)
 
 
-def fill_nan(a, method="mean"):
-    df = pandas.DataFrame(a)
-
-    nan_count = df.isnull().sum().sum()
-    print "Replacing {:,} / {:,} null values in {}".format(nan_count, df.shape[0] * df.shape[1], df.shape)
-    df = df.fillna(df.mean())
-    return df.values
-
-
 def _rms_error(y_true, y_pred):
     return numpy.square(y_true - y_pred).mean().mean() ** 0.5
+
 
 rms_error = sklearn.metrics.make_scorer(_rms_error, greater_is_better=False)
 
@@ -466,6 +417,7 @@ class OutputTransformation(sklearn.base.BaseEstimator):
     on predicting. This can be used with StandardScaler to remove the scale of outputs or can be used to augment the
     outputs.
     """
+
     def __init__(self, model, transformer):
         self.estimator = model
         self.transformer = transformer
@@ -480,8 +432,12 @@ class OutputTransformation(sklearn.base.BaseEstimator):
         return self.transformer.inverse_transform(self.estimator.predict(X))
 
 
-def get_model_name(model, format="{}({})"):
+def get_model_name(model, format="{}({})", remove={"Regressor", "Regression", "Classifier"}):
     name = type(model).__name__
+
+    if remove:
+        for substr in remove:
+            name = name.replace(substr, "")
 
     try:
         nested_name = get_model_name(model.estimator, format)
