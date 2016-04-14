@@ -2,6 +2,8 @@ from __future__ import unicode_literals
 
 import time
 
+import numpy
+
 
 def number_string(number, singular_unit, plural_unit, format_string="{} {}"):
     return format_string.format(number, singular_unit if number == 1 else plural_unit)
@@ -24,3 +26,23 @@ class Timed(object):
             time_string = ", ".join((number_string(hours, "hour", "hours"), time_string))
 
         print "{} took {}".format(self.func.__name__, time_string)
+
+
+def prepare_time_matrix(X, time_steps=5, fill_value=None):
+    if time_steps < 1:
+        raise ValueError("time_steps must be 1 or more")
+
+    assert isinstance(X, numpy.ndarray)
+    time_shifts = [X]
+    time_shifts.extend(numpy.roll(X, t, axis=0) for t in range(1, time_steps))
+    time_shifts = reversed(time_shifts)
+
+    X_time = numpy.dstack(time_shifts)
+    X_time = X_time.swapaxes(1, 2)
+
+    if fill_value is not None:
+        for t in range(time_steps):
+            missing_steps = time_steps - t
+            X_time[t, :missing_steps-1, :] = fill_value
+
+    return X_time
