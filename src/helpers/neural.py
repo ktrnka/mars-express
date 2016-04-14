@@ -13,11 +13,18 @@ import sklearn
 _he_activations = {"relu"}
 
 
+class RnnSpec(object):
+    def __init__(self, num_units=None):
+        self.num_units = num_units
+
+    def get_unit_first(self, batch_size, num_features):
+        return keras.layers.recurrent.LSTM(self.num_units, stateful=True, batch_input_shape=(batch_size, 1, num_features))
+
 class NnRegressor(sklearn.base.BaseEstimator):
     """Wrapper for Keras feed-forward neural network for regression to enable scikit-learn grid search"""
 
     def __init__(self, hidden_layer_sizes=(100,), hidden_units=None, dropout=0.5, batch_size=-1, loss="mse", num_epochs=500, activation="relu", input_noise=0., learning_rate=0.001, verbose=0, init=None, l2=None, batch_norm=False, early_stopping=False, clip_gradient_norm=None, assert_finite=True,
-                 maxnorm=False):
+                 maxnorm=False, rnn_spec=None):
         self.clip_gradient_norm = clip_gradient_norm
         self.assert_finite = assert_finite
         if hidden_units:
@@ -37,6 +44,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
         self.early_stopping = early_stopping
         self.init = self._get_default_init(init, activation)
         self.use_maxnorm = maxnorm
+        self.rnn_spec = rnn_spec
 
         self.model_ = None
 
@@ -55,6 +63,9 @@ class NnRegressor(sklearn.base.BaseEstimator):
         model = keras.models.Sequential()
 
         # TODO: I made an incorrect conclusion about input_shape because I always had input_noise enabled before!
+
+        if self.rnn_spec:
+            model.add(self.rnn_spec.get_unit_first(self.batch_size, X.shape[-1]))
 
         # optional input noise
         if self.input_noise > 0:
@@ -106,6 +117,9 @@ class NnRegressor(sklearn.base.BaseEstimator):
         kwargs["batch_size"] = self.batch_size
         if kwargs["batch_size"] < 0 or kwargs["batch_size"] > X.shape[0]:
             kwargs["batch_size"] = X.shape[0]
+
+        if self.rnn_spec:
+            kwargs["shuffle"] = False
 
         return kwargs
 

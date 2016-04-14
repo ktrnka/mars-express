@@ -280,7 +280,7 @@ def make_nn():
     return model
 
 @helpers.general.Timed
-def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_pca=False):
+def experiment_neural_network(X_train, Y_train, args, splits, tune_params):
     Y_train = Y_train.values
 
     model = make_nn()
@@ -289,15 +289,16 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_p
     if args.analyse_hyperparameters and tune_params:
         print "Running hyperparam opt"
         nn_hyperparams = {
+            "batch_size": [200, 500],
             "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
             "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
             "learning_rate": helpers.sk.RandomizedSearchCV.exponential(0.005, 0.0005),
             "activation": ["sigmoid", "tanh"],
-            "hidden_units": [50, 100, 200, 400],
+            "hidden_layer_sizes": [(100,), (200,), (100, 100)],
             "loss": ["mse", "mae"]
         }
         model = make_nn()
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=30, n_jobs=1, scoring=rms_error)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=20, n_jobs=1, scoring=rms_error)
         # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
 
         wrapped_model.fit(X_train, Y_train)
@@ -427,7 +428,7 @@ def main():
 
     # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
-    experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
+    experiment_neural_network(X_train, Y_train, args, splits, tune_params=True)
 
 
 def make_scaler():
