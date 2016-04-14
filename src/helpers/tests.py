@@ -15,8 +15,10 @@ class HelperTests(unittest.TestCase):
         X, Y = _build_data(100)
 
         # regular test
-        splits = list(helpers.sk.TimeCV(X.shape[0], 4))
-        self.assertListEqual([(range(0, 50), range(50, 75)), (range(0, 75), range(75, 100))], splits)
+        # TODO: I refactored this so that it'd fail in the same way as RandomizedSearchCV
+        splits = helpers.sk.TimeCV(X.shape[0], 4)
+        self.assertSequenceEqual([(range(0, 50), range(50, 75)), (range(0, 75), range(75, 100))], splits)
+        self.assertEqual(2, len(splits))
 
         # test with 2 buckets per test
         splits = list(helpers.sk.TimeCV(X.shape[0], 4, test_splits=2, balanced_tests=False))

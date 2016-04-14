@@ -274,8 +274,12 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
                                                                               test.parameters)
 
         print "Hyperparameter correlations with evaluation metric"
-        for param, (stat_name, stat, pval) in self.correlate_hyperparameters().iteritems():
+        for param, (stat_name, stat, pval, extras) in self.correlate_hyperparameters().iteritems():
             print "\t{}: {} = {:.4f}, p = {:.4f}".format(param, stat_name, stat, pval)
+
+            if extras:
+                for param_val, score in extras.most_common():
+                    print "\t\t{}: {:.4f}".format(param_val, score)
 
     def correlate_hyperparameters(self):
         param_scores = self._get_independent_scores()
@@ -288,7 +292,7 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
                 assert points.shape[1] == 2
 
                 pearson_r, pearson_p = scipy.stats.pearsonr(points[:, 0], points[:, 1])
-                param_correlations[param_name] = ("Pearson r", pearson_r, pearson_p)
+                param_correlations[param_name] = ("Pearson r", pearson_r, pearson_p, None)
             else:
                 # non-numeric path, run anova or something
                 param_vals = collections.defaultdict(list)
@@ -296,7 +300,11 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
                     param_vals[param_val].append(score)
 
                 anova_f, anova_p = scipy.stats.f_oneway(*[numpy.asarray(v) for v in param_vals.itervalues()])
-                param_correlations[param_name] = ("Anova f", anova_f, anova_p)
+
+                extra = None
+                if anova_p <= 0.05:
+                    extra = collections.Counter({p: numpy.mean(vals) for p, vals in param_vals.iteritems()})
+                param_correlations[param_name] = ("Anova f", anova_f, anova_p, extra)
 
         return param_correlations
 
@@ -403,6 +411,7 @@ class TimeCV(object):
 
                 if self.mirror:
                     yield list(self.num_rows - train_index - 1), list(self.num_rows - test_index - 1)
+
 
 
 def _rms_error(y_true, y_pred):

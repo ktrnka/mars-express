@@ -19,7 +19,7 @@ def predict_test_data(X_train, Y_train, scaler, testing_dir, testing_output):
     baseline_model = sklearn.dummy.DummyRegressor("mean").fit(X_train, Y_train)
 
     # retrain a model on the full data
-    model = make_nn().fit(X_train, Y_train.values)
+    model = make_blr().fit(X_train, Y_train.values)
 
     test_data = load_data(testing_dir)
     X_test, Y_test = separate_output(test_data)

@@ -264,9 +264,9 @@ def make_nn():
     model = helpers.neural.NnRegressor(num_epochs=500,
                                        batch_size=200,
                                        learning_rate=0.001,
-                                       dropout=0.4,
+                                       dropout=0.5,
                                        activation="tanh",
-                                       input_noise=0.05,
+                                       input_noise=0.1,
                                        hidden_units=200,
                                        early_stopping=True,
                                        loss="mse",
@@ -293,7 +293,7 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params):
             "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
             "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
             "learning_rate": helpers.sk.RandomizedSearchCV.exponential(0.005, 0.0005),
-            "activation": ["sigmoid", "tanh"],
+            "activation": ["sigmoid", "tanh", "elu"],
             "hidden_layer_sizes": [(100,), (200,), (100, 100)],
             "loss": ["mse", "mae"]
         }
@@ -392,7 +392,7 @@ def main():
     train_data = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     # cross validation by year
-    # splits = sklearn_helpers.TimeCV(train_data.shape[0], 10, min_training=0.4, test_splits=3, gap=1)
+    # splits = helpers.sk.TimeCV(train_data.shape[0], 10, min_training=0.4, test_splits=3)
     # splits = sklearn.cross_validation.KFold(train_data.shape[0], 5, shuffle=True)
     splits = sklearn.cross_validation.LeaveOneLabelOut(train_data["file_number"])
 
@@ -422,19 +422,19 @@ def main():
 
     experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
 
-    experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
+    experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
     # experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
     # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
-    experiment_neural_network(X_train, Y_train, args, splits, tune_params=True)
+    experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
 
 def make_scaler():
     pipe = []
     pipe.append(("scaler", helpers.sk.ClippedRobustScaler()))
-    pipe.append(("pca", sklearn.decomposition.PCA(n_components=0.992, whiten=True)))
+    # pipe.append(("pca", sklearn.decomposition.PCA(n_components=0.992, whiten=True)))
 
     preprocessing_pipeline = sklearn.pipeline.Pipeline(pipe)
     return preprocessing_pipeline
