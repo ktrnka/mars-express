@@ -76,7 +76,7 @@ class ModelTests(unittest.TestCase):
         self.assertListEqual([100, 2], list(X.shape))
         self.assertListEqual([100, 2], list(Y.shape))
 
-        model = helpers.neural.NnRegressor(learning_rate=0.01, num_epochs=1000, dropout=0., hidden_layer_sizes=(3,))
+        model = helpers.neural.NnRegressor(learning_rate=0.01, num_epochs=1000, input_noise=0.01, dropout=0., hidden_layer_sizes=(3,))
         model.fit(X, Y)
 
         Y_pred = model.predict(X)
