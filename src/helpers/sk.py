@@ -4,6 +4,8 @@ import math
 import numbers
 from operator import itemgetter
 
+import itertools
+
 import numpy
 import pandas
 import scipy.optimize
@@ -25,6 +27,10 @@ def _convert_scale(target_value, max_value):
     return target_value
 
 
+def get_lr_importances(model):
+    return numpy.abs(model.coef_).max(axis=0)
+
+
 class SubspaceWrapper(sklearn.base.BaseEstimator):
     """Train the nested estimator with a random subspace"""
     def __init__(self, base_estimator=None, max_samples=1.0, max_features=1.0):
@@ -37,12 +43,16 @@ class SubspaceWrapper(sklearn.base.BaseEstimator):
         self.cols_ = None
         self.estimator_ = None
 
-    def fit(self, X, Y):
+    def fit(self, X, Y, feature_probs=None):
         assert isinstance(X, numpy.ndarray)
         assert isinstance(Y, numpy.ndarray)
 
         rows = sklearn.utils.random.sample_without_replacement(X.shape[0], _convert_scale(self.max_samples, X.shape[0]))
-        self.cols_ = sklearn.utils.random.sample_without_replacement(X.shape[1], _convert_scale(self.max_features, X.shape[1]))
+
+        if feature_probs is not None:
+            self.cols_ = numpy.random.choice(X.shape[1], _convert_scale(self.max_features, X.shape[1]), replace=False, p=feature_probs)
+        else:
+            self.cols_ = sklearn.utils.random.sample_without_replacement(X.shape[1], _convert_scale(self.max_features, X.shape[1]))
 
         self.logger_.debug("X.shape: %s", X.shape)
         self.logger_.debug("Y.shape: %s", Y.shape)
@@ -58,25 +68,40 @@ class SubspaceWrapper(sklearn.base.BaseEstimator):
         assert isinstance(X, numpy.ndarray)
         return self.estimator_.predict(X[:, self.cols_])
 
+    def get_feature_weights(self, feature_weight_getter):
+        return zip(self.cols_, feature_weight_getter(self.estimator_))
+
 
 class MultivariateBaggingRegressor(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):
     """Bagging model that will use an underlying multivariate regression model unlike sklearn bagging"""
-    def __init__(self, base_estimator=None, n_estimators=10, max_samples=1.0, max_features=1.0):
+    def __init__(self, base_estimator=None, n_estimators=10, max_samples=1.0, max_features=1.0, feature_weight_getter=None):
         self.base_estimator = base_estimator
         self.n_estimators = n_estimators
         self.max_samples = max_samples
         self.max_features = max_features
+        self.feature_weight_getter = feature_weight_getter
 
         self.logger = logging.getLogger("MultivariateBaggingRegressor")
         self.estimators_ = None
+        self.num_features_ = None
 
     def _get_estimator(self):
         return SubspaceWrapper(self.base_estimator, self.max_samples, self.max_features)
 
     def fit(self, X, Y):
         assert len(Y.shape) == 2
+        self.num_features_ = X.shape[1]
 
-        self.estimators_ = [self._get_estimator().fit(X, Y) for _ in xrange(self.n_estimators)]
+        if not self.feature_weight_getter:
+            self.estimators_ = [self._get_estimator().fit(X, Y) for _ in xrange(self.n_estimators)]
+        else:
+            sample1 = self.n_estimators / 3
+            sample2 = self.n_estimators - sample1
+
+            self.estimators_ = [self._get_estimator().fit(X, Y) for _ in xrange(sample1)]
+            feature_probs = self.get_feature_weights(self.feature_weight_getter)
+            self.estimators_.extend(self._get_estimator().fit(X, Y, feature_probs=feature_probs) for _ in xrange(sample2))
+
         return self
 
     def predict(self, X):
@@ -89,6 +114,20 @@ class MultivariateBaggingRegressor(sklearn.base.BaseEstimator, sklearn.base.Regr
         assert len(result.shape) == 2
 
         return result
+
+    def get_feature_weights(self, feature_weight_getter):
+        weights = [list() for _ in xrange(self.num_features_)]
+
+        for estimator in self.estimators_:
+            for col, weight in estimator.get_feature_weights(feature_weight_getter):
+                weights[col].append(weight)
+
+        overall = numpy.mean(list(itertools.chain(*weights)))
+
+        weights = numpy.asarray([numpy.min(w) if w else overall for w in weights])
+        weights /= numpy.sum(weights)
+
+        return weights
 
 
 class TimeSeriesRegressor(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin):

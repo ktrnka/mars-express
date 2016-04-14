@@ -34,6 +34,7 @@ from sklearn.linear_model import LinearRegression
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("-d", "--debug", default=False, action="store_true", help="Debug logging")
     parser.add_argument("--feature-pairs", default=False, action="store_true", help="Try out pairs of features")
     parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
     parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
@@ -198,6 +199,14 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_transformation_feature(data, "sy", "log", drop=True)
         add_transformation_feature(data, "sa", "log", drop=True)
 
+        # various crazy rolling features
+        add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
+        add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h", 1600, "1600")
+        add_lag_feature(data, "EVTF_event_counts_rolling_5h", 50, "50")
+        add_lag_feature(data, "FTL_ACROSS_TRACK", 200, "200")
+        add_lag_feature(data, "FTL_NADIR", 400, "400")
+
+
     return data
 
 
@@ -284,7 +293,8 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params, use_p
             "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
             "learning_rate": helpers.sk.RandomizedSearchCV.exponential(0.005, 0.0005),
             "activation": ["sigmoid", "tanh"],
-            "hidden_units": [50, 100, 200, 400]
+            "hidden_units": [50, 100, 200, 400],
+            "loss": ["mse", "mae"]
         }
         model = make_nn()
         wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=30, n_jobs=1, scoring=rms_error)
@@ -373,6 +383,11 @@ def verify_data(train_df, test_df, filename):
 def main():
     args = parse_args()
 
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+
     train_data = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     # cross validation by year
@@ -416,16 +431,17 @@ def main():
 
 
 def make_scaler():
-    scaler = helpers.sk.ClippedRobustScaler()
-    pca = sklearn.decomposition.PCA(n_components=0.99, whiten=True)
+    pipe = []
+    pipe.append(("scaler", helpers.sk.ClippedRobustScaler()))
+    pipe.append(("pca", sklearn.decomposition.PCA(n_components=0.99, whiten=True)))
 
-    preprocessing_pipeline = sklearn.pipeline.Pipeline([("scaler", scaler), ("pca", pca)])
+    preprocessing_pipeline = sklearn.pipeline.Pipeline(pipe)
     return preprocessing_pipeline
 
 
-def make_blr():
+def make_blr(**kwargs):
     """Make a bagged linear regression model with reasonable default args"""
-    model = helpers.sk.MultivariateBaggingRegressor(LinearRegression(), max_samples=0.98, max_features=.8, n_estimators=30)
+    model = helpers.sk.MultivariateBaggingRegressor(LinearRegression(), max_samples=0.98, max_features=.8, n_estimators=30, **kwargs)
     return model
 
 @helpers.general.Timed
