@@ -433,7 +433,7 @@ def main():
 def make_scaler():
     pipe = []
     pipe.append(("scaler", helpers.sk.ClippedRobustScaler()))
-    pipe.append(("pca", sklearn.decomposition.PCA(n_components=0.99, whiten=True)))
+    pipe.append(("pca", sklearn.decomposition.PCA(n_components=0.992, whiten=True)))
 
     preprocessing_pipeline = sklearn.pipeline.Pipeline(pipe)
     return preprocessing_pipeline
