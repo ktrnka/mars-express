@@ -51,6 +51,11 @@ class TimeShiftTests(unittest.TestCase):
         self.assertEqual(X_time[5, -5, 1], 1)
         self.assertEqual(X_time[5, -5, 2], 1)
 
+        self.assertEqual(X_time[9, -5, 0], 5)
+        self.assertEqual(X_time[9, -5, 1], 25)
+        self.assertEqual(X_time[9, -5, 2], 125)
+
+
         # by default it wraps around
         self.assertEqual(X_time[0, -2, 0], 9)
         self.assertEqual(X_time[0, -2, 1], 81)

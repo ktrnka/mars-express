@@ -343,7 +343,7 @@ class LinearRegressionWrapper(sklearn.linear_model.LinearRegression):
     """Wrapper for LinearRegression that's compatible with GradientBoostingClassifier sample_weights"""
 
     def fit(self, X, y, sample_weight, **kwargs):
-        super(LinearRegressionWrapper, self).fit(X, y, **kwargs)
+        super(LinearRegressionWrapper, self).fit(X, y)
 
     def predict(self, X):
         return super(LinearRegressionWrapper, self).predict(X)[:, numpy.newaxis]

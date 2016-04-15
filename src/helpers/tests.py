@@ -2,6 +2,8 @@ from __future__ import unicode_literals
 
 import unittest
 
+import math
+
 import helpers.neural
 import helpers.sk
 import numpy
@@ -71,13 +73,27 @@ def _build_data(n):
 
     X = numpy.vstack((X, X + 1, X + 2, X + 3)).transpose()
 
-    return X[:,:2], X[:,2:]
+    return X[:, :2], X[:, 2:]
 
-def _build_periodic_data(n):
-    X = numpy.asarray(range(n))
 
-    X = numpy.vstack((X, X + 1, numpy.sin(X / 50))).transpose()
-    return X[:,:2], X[:,2:]
+def _build_periodic_data(n, period=50.):
+    X = numpy.asarray(range(n), dtype=numpy.float32)
+
+    X = numpy.vstack((X, numpy.cos(2. * math.pi * X / period))).transpose()
+    return X[:, 0].reshape((-1, 1)), X[:, 1].reshape((-1, 1))
+
+def moving_average(a, n=3) :
+    """From http://stackoverflow.com/a/14314054/1492373"""
+    ret = numpy.cumsum(a, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n
+
+def _build_summation_data(n, lag=4):
+    X = (numpy.random.rand(n, 1) > 0.5).astype(numpy.int16)
+
+    Y = moving_average(X, lag).reshape(-1, 1)
+
+    return X[lag-1:,:], Y
 
 def _build_identity(n):
     return numpy.asarray(range(n))[:, numpy.newaxis], numpy.asarray(range(n))[:, numpy.newaxis]
@@ -86,7 +102,8 @@ def _build_identity(n):
 class ModelTests(unittest.TestCase):
     def test_nn_identity(self):
         X, Y = _build_identity(100)
-        model = helpers.neural.NnRegressor(learning_rate=0.5, input_noise=0.00001, num_epochs=200, loss="mae", dropout=None, hidden_units=5, early_stopping=True, verbose=1)
+        model = helpers.neural.NnRegressor(learning_rate=0.5, input_noise=0.00001, num_epochs=200, loss="mae",
+                                           dropout=None, hidden_units=5, early_stopping=True, verbose=1)
         model.fit(X, Y)
 
         # This test is incredibly frustrating
@@ -95,7 +112,8 @@ class ModelTests(unittest.TestCase):
     def test_nn_regression_model(self):
         X, Y = _build_data(100)
 
-        model = helpers.neural.NnRegressor(learning_rate=0.01, num_epochs=1000, input_noise=0.01, dropout=0., hidden_layer_sizes=(3,))
+        model = helpers.neural.NnRegressor(learning_rate=0.01, num_epochs=1000, input_noise=0.01, dropout=0.,
+                                           hidden_layer_sizes=(3,))
         model.fit(X, Y)
 
         Y_pred = model.predict(X)
@@ -104,38 +122,34 @@ class ModelTests(unittest.TestCase):
         self.assertLess(error, 1.)
 
     def test_rnn(self):
-        X, Y = _build_periodic_data(1000)
-
-        print X.shape, Y.shape
+        X, Y = _build_summation_data(1000, lag=4)
 
         baseline_model = sklearn.linear_model.LinearRegression().fit(X, Y)
 
-        Y_pred = baseline_model.predict(X)
-        self.assertEqual(Y.shape, Y_pred.shape)
-        baseline_error = sklearn.metrics.mean_squared_error(Y, Y_pred)
-        self.assertLess(baseline_error, 0.51)
+        baseline_predictions = baseline_model.predict(X)
+        self.assertEqual(Y.shape, baseline_predictions.shape)
+        baseline_error = sklearn.metrics.mean_squared_error(Y, baseline_predictions)
+        self.assertLess(baseline_error, 0.1)
 
-        # test non-RNN to see how it does
-        model = helpers.neural.NnRegressor(hidden_units=50, learning_rate=.0005, l2=.00001, activation="tanh", dropout=None, batch_size=50, num_epochs=500, verbose=1, input_noise=0.0001, early_stopping=True)
+        # test non-RNN
+        model = helpers.neural.NnRegressor(activation="tanh", batch_size=50, num_epochs=100, verbose=0, input_noise=0.0001,
+                                           early_stopping=True)
         model.fit(X, Y)
-        Y_pred = model.predict(X)
-        self.assertEqual(Y.shape, Y_pred.shape)
-        mlp_error = ((Y - Y_pred) ** 2).mean().mean()
-        self.assertLess(mlp_error, baseline_error)
+        mlp_predictions = model.predict(X)
+        self.assertEqual(Y.shape, mlp_predictions.shape)
+        mlp_error = ((Y - mlp_predictions) ** 2).mean().mean()
+        self.assertLess(mlp_error, baseline_error * 1.5)
 
-        # add an extra axis for time, which is ignored
-        model = helpers.neural.RnnRegressor(num_epochs=500, batch_size=50, num_units=100, time_steps=10)
+        # test RNN
+        model = helpers.neural.RnnRegressor(num_epochs=200, batch_size=50, num_units=100, time_steps=5, early_stopping=True, verbose=1)
         model.fit(X, Y)
+        rnn_predictions = model.predict(X)
 
-        Y_pred = model.predict(X)
-        self.assertEqual(Y.shape, Y_pred.shape)
-        error = ((Y - Y_pred) ** 2).mean().mean()
-        self.assertLess(error, 0.1)
+        self.assertEqual(Y.shape, rnn_predictions.shape)
+        error = ((Y - rnn_predictions) ** 2).mean().mean()
 
-        self.assertLessEqual(error, baseline_error)
-
-        # TODO
-        # Test identity function
+        # should be more than 2x better
+        self.assertLessEqual(error, mlp_error / 2)
 
     def test_build_data(self):
         X, Y = _build_data(100)
@@ -156,7 +170,8 @@ class ModelTests(unittest.TestCase):
         baseline_error = sklearn.metrics.mean_squared_error(Y, Y_pred)
         self.assertLess(baseline_error, 1.)
 
-        model = helpers.sk.MultivariateBaggingRegressor(base_estimator=sklearn.linear_model.LinearRegression(), max_samples=0.8, max_features=0.6)
+        model = helpers.sk.MultivariateBaggingRegressor(base_estimator=sklearn.linear_model.LinearRegression(),
+                                                        max_samples=0.8, max_features=0.6)
         model.fit(X, Y)
 
         Y_pred = model.predict(X)

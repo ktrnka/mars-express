@@ -304,6 +304,12 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params):
         wrapped_model.fit(X_train, Y_train)
         wrapped_model.print_tuning_scores()
 
+@helpers.general.Timed
+def experiment_rnn(X_train, Y_train, args, splits):
+    Y_train = Y_train.values
+
+    model = helpers.neural.RnnRegressor(num_units=100, time_steps=5, batch_size=200, num_epochs=500, verbose=1)
+    cross_validate(X_train, Y_train, model, splits)
 
 def score_feature(X_train, Y_train, splits):
     scaler = sklearn.preprocessing.RobustScaler()
@@ -427,6 +433,8 @@ def main():
     # experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
     # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
+
+    experiment_rnn(X_train, Y_train, args, splits)
 
     experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 

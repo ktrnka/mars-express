@@ -119,9 +119,6 @@ class NnRegressor(sklearn.base.BaseEstimator):
         if kwargs["batch_size"] < 0 or kwargs["batch_size"] > X.shape[0]:
             kwargs["batch_size"] = X.shape[0]
 
-        if self.rnn_spec:
-            kwargs["shuffle"] = False
-
         return kwargs
 
     def count_params(self):
@@ -155,30 +152,39 @@ class NnRegressor(sklearn.base.BaseEstimator):
         return kwargs
 
 
-class RnnRegressor(sklearn.base.BaseEstimator):
-    def __init__(self, num_units=50, time_steps=5, batch_size=100, num_epochs=100):
+class RnnRegressor(NnRegressor):
+    def __init__(self, num_units=50, time_steps=5, batch_size=100, num_epochs=100, unit="lstm", verbose=0,
+                 early_stopping=False):
+        super(RnnRegressor, self).__init__(batch_size=batch_size, num_epochs=num_epochs, verbose=verbose, early_stopping=early_stopping)
         self.num_units = num_units
         self.time_steps = time_steps
-        self.batch_size = batch_size
-        self.num_epochs = num_epochs
+        self.unit = unit
 
     def _transform_input(self, X):
         return helpers.general.prepare_time_matrix(X, self.time_steps, fill_value=0)
 
-    def fit(self, X, Y):
+    def fit(self, X, Y, **kwargs):
+        self.set_params(**kwargs)
+
         model = keras.models.Sequential()
 
         X_time = self._transform_input(X)
 
         # hidden layer
-        model.add(keras.layers.recurrent.LSTM(self.num_units, batch_input_shape=(self.batch_size, self.time_steps, X.shape[1])))
+        if self.unit == "lstm":
+            model.add(keras.layers.recurrent.LSTM(self.num_units, input_shape=X_time.shape[1:]))
+        elif self.unit == "gru":
+            model.add(keras.layers.recurrent.GRU(self.num_units, input_shape=X_time.shape[1:]))
+        else:
+            raise ValueError("Unknown unit type: {}".format(self.unit))
 
         # output layer
         model.add(keras.layers.core.Dense(output_dim=Y.shape[1]))
 
-        model.compile(loss="mse", optimizer="rmsprop")
+        optimizer = keras.optimizers.RMSprop()
+        model.compile(loss="mse", optimizer=optimizer)
 
-        model.fit(X_time, Y, nb_epoch=self.num_epochs, verbose=2)
+        model.fit(X_time, Y, **self._get_fit_kwargs(X))
 
         self.model_ = model
         return self

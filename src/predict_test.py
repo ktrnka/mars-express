@@ -7,21 +7,31 @@ from train_test import *
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
+    parser.add_argument("--model", default="nn", help="Model to generate predictions with")
     parser.add_argument("training_dir", help="Dir with the training CSV files")
     parser.add_argument("testing_dir", help="Dir with the testing files, including the empty prediction file")
     parser.add_argument("prediction_file", help="Destination for predictions")
 
     return parser.parse_args()
 
+def get_model(model_name):
+    model_name = model_name.lower()
 
-def predict_test_data(X_train, Y_train, scaler, testing_dir, testing_output):
+    if model_name == "nn":
+        return make_nn()
+    elif model_name == "blr":
+        return make_blr()
+    else:
+        raise ValueError("Unknown model abbreviation '{}'".format(model_name))
+
+def predict_test_data(X_train, Y_train, scaler, args):
     # retrain baseline model as a sanity check
     baseline_model = sklearn.dummy.DummyRegressor("mean").fit(X_train, Y_train)
 
     # retrain a model on the full data
-    model = make_blr().fit(X_train, Y_train.values)
+    model = get_model(args.model_name).fit(X_train, Y_train.values)
 
-    test_data = load_data(testing_dir)
+    test_data = load_data(args.testing_dir)
     X_test, Y_test = separate_output(test_data)
     X_test = scaler.transform(X_test)
 
@@ -31,7 +41,7 @@ def predict_test_data(X_train, Y_train, scaler, testing_dir, testing_output):
 
     # redo the index as unix timestamp
     test_data.index = test_data.index.astype(numpy.int64) / 10 ** 6
-    test_data[Y_test.columns].to_csv(with_date(with_model_name(with_num_features(testing_output, X_train), model)), index_label="ut_ms")
+    test_data[Y_test.columns].to_csv(with_date(with_model_name(with_num_features(args.prediction_file, X_train), model)), index_label="ut_ms")
 
 
 def verify_predictions(X_test, baseline_model, model):
@@ -82,7 +92,7 @@ def main():
 
     X_train = scaler.fit_transform(X_train)
 
-    predict_test_data(X_train, Y_train, scaler, args.testing_dir, args.prediction_file)
+    predict_test_data(X_train, Y_train, scaler, args)
 
 
 if __name__ == "__main__":
