@@ -64,11 +64,31 @@ def get_evtf_ranges(event_data, event_prefix):
             current_start = date
         elif current_start:
             assert row["description"].endswith("_END")
-            event_ranges.append({"duration": date - current_start,
-                                 "start": current_start,
-                                 "end": date})
+            event_ranges.append(time_range(current_start, date))
             current_start = None
     return event_ranges
+
+def get_dmop_subsystem(dmop_data):
+    """Extract the subsystem from each record of the dmop data"""
+    dmop_subsys = dmop_data.subsystem.str.extract(r"A(?P<subsystem>\w{3}).*", expand=False)
+    dmop_subsys_mapo = dmop_data.subsystem.str.extract(r"(?P<subsystem>.+)\..+", expand=False)
+
+    dmop_subsys.fillna(dmop_subsys_mapo, inplace=True)
+    dmop_subsys.fillna(dmop_data.subsystem, inplace=True)
+
+    return dmop_subsys
+
+
+def time_range(start_time, end_time):
+    return {"duration": end_time - start_time,
+            "start": start_time,
+            "end": end_time}
+
+
+def get_dmop_ranges(dmop_subsystem, subsystem_name, hours_impact=1):
+    time_offset = pandas.Timedelta(hours=hours_impact)
+    for t in dmop_subsystem[dmop_subsystem == subsystem_name].index:
+        yield time_range(t, t + time_offset)
 
 
 def get_evtf_altitude(event_data, index=None):
@@ -88,7 +108,7 @@ def get_evtf_altitude(event_data, index=None):
 def get_ftl_periods(ftl_slice):
     """Get time ranges for FTL data (first two columns are start and end time so it's simple)"""
     for row in ftl_slice.itertuples():
-        yield {"start": row[0], "end": row[1]}
+        yield time_range(row[0], row[1])
 
 
 def get_event_series(datetime_index, event_ranges):
@@ -113,7 +133,10 @@ def load_series(files, add_file_number=False, resample_interval=None, date_cols=
         for i, year_data in enumerate(data):
             year_data["file_number"] = i
 
-    return pandas.concat(data)
+    data = pandas.concat(data)
+    assert isinstance(data, pandas.DataFrame)
+
+    return data
 
 
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
@@ -167,6 +190,14 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
+
+    dmop_subsystems = get_dmop_subsystem(dmop_data)
+    for subsys, hours in [("TTT", 1), ("PENS", 1), ("PENE", 1), ("AAA", 1), ("OOO", 1), ("ACF", 1), ("SSS", 1)]:
+        dest_name = "DMOP_{}_under_{}h_ago".format(subsys, hours)
+        event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_dmop_ranges(dmop_subsystems, subsys, hours))
+        add_lag_feature(event_sampled_df, dest_name, 12, "1h", drop=True)
+
+
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
     dmop_data = dmop_data.resample("1H").count().reindex(data.index, method="nearest")
@@ -180,6 +211,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
     data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest")], axis=1)
+    assert isinstance(data, pandas.DataFrame)
 
     if filter_null_power:
         previous_size = data.shape[0]
@@ -434,15 +466,15 @@ def main():
 
     # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
-    experiment_rnn(X_train, Y_train, args, splits)
+    # experiment_rnn(X_train, Y_train, args, splits)
 
-    experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
+    experiment_neural_network(X_train, Y_train, args, splits, tune_params=True)
 
 
 def make_scaler():
     pipe = []
     pipe.append(("scaler", helpers.sk.ClippedRobustScaler()))
-    # pipe.append(("pca", sklearn.decomposition.PCA(n_components=0.992, whiten=True)))
+    pipe.append(("pca", sklearn.decomposition.PCA(n_components=0.993, whiten=True)))
 
     preprocessing_pipeline = sklearn.pipeline.Pipeline(pipe)
     return preprocessing_pipeline
