@@ -8,7 +8,8 @@ import keras.optimizers
 import keras.regularizers
 import numpy
 import sklearn
-
+import keras.layers.recurrent
+import helpers.general
 
 _he_activations = {"relu"}
 
@@ -152,3 +153,36 @@ class NnRegressor(sklearn.base.BaseEstimator):
             kwargs["clipnorm"] = self.clip_gradient_norm
 
         return kwargs
+
+
+class RnnRegressor(sklearn.base.BaseEstimator):
+    def __init__(self, num_units=50, time_steps=5, batch_size=100, num_epochs=100):
+        self.num_units = num_units
+        self.time_steps = time_steps
+        self.batch_size = batch_size
+        self.num_epochs = num_epochs
+
+    def _transform_input(self, X):
+        return helpers.general.prepare_time_matrix(X, self.time_steps, fill_value=0)
+
+    def fit(self, X, Y):
+        model = keras.models.Sequential()
+
+        X_time = self._transform_input(X)
+
+        # hidden layer
+        model.add(keras.layers.recurrent.LSTM(self.num_units, batch_input_shape=(self.batch_size, self.time_steps, X.shape[1])))
+
+        # output layer
+        model.add(keras.layers.core.Dense(output_dim=Y.shape[1]))
+
+        model.compile(loss="mse", optimizer="rmsprop")
+
+        model.fit(X_time, Y, nb_epoch=self.num_epochs, verbose=2)
+
+        self.model_ = model
+        return self
+
+    def predict(self, X):
+        return self.model_.predict(self._transform_input(X))
+

@@ -113,14 +113,18 @@ class ModelTests(unittest.TestCase):
         Y_pred = baseline_model.predict(X)
         self.assertEqual(Y.shape, Y_pred.shape)
         baseline_error = sklearn.metrics.mean_squared_error(Y, Y_pred)
-        self.assertAlmostEqual(0.5, baseline_error, places=2)
+        self.assertLess(baseline_error, 0.51)
 
         # test non-RNN to see how it does
+        model = helpers.neural.NnRegressor(hidden_units=50, learning_rate=.0005, l2=.00001, activation="tanh", dropout=None, batch_size=50, num_epochs=500, verbose=1, input_noise=0.0001, early_stopping=True)
+        model.fit(X, Y)
+        Y_pred = model.predict(X)
+        self.assertEqual(Y.shape, Y_pred.shape)
+        mlp_error = ((Y - Y_pred) ** 2).mean().mean()
+        self.assertLess(mlp_error, baseline_error)
 
         # add an extra axis for time, which is ignored
-        X = X[:, numpy.newaxis, :]
-
-        model = helpers.neural.NnRegressor(learning_rate=0.01, num_epochs=50, batch_size=10, rnn_spec=helpers.neural.RnnSpec(5), verbose=2)
+        model = helpers.neural.RnnRegressor(num_epochs=500, batch_size=50, num_units=100, time_steps=10)
         model.fit(X, Y)
 
         Y_pred = model.predict(X)
