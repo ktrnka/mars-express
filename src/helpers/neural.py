@@ -141,12 +141,13 @@ class NnRegressor(sklearn.base.BaseEstimator):
 
 class RnnRegressor(NnRegressor):
     def __init__(self, num_units=50, time_steps=5, batch_size=100, num_epochs=100, unit="lstm", verbose=0,
-                 early_stopping=False, dropout=None, recurrent_dropout=None, loss="mse", input_noise=0., learning_rate=0.001):
-        super(RnnRegressor, self).__init__(batch_size=batch_size, num_epochs=num_epochs, verbose=verbose, early_stopping=early_stopping, dropout=dropout, loss=loss, input_noise=input_noise, learning_rate=learning_rate)
+                 early_stopping=False, dropout=None, recurrent_dropout=None, loss="mse", input_noise=0., learning_rate=0.001, clip_gradient_norm=None):
+        super(RnnRegressor, self).__init__(batch_size=batch_size, num_epochs=num_epochs, verbose=verbose, early_stopping=early_stopping, dropout=dropout, loss=loss, input_noise=input_noise, learning_rate=learning_rate, clip_gradient_norm=clip_gradient_norm)
         self.num_units = num_units
         self.time_steps = time_steps
         self.unit = unit
         self.recurrent_dropout = recurrent_dropout
+        self.use_maxnorm = True
 
     def _transform_input(self, X):
         return helpers.general.prepare_time_matrix(X, self.time_steps, fill_value=0)

@@ -294,7 +294,7 @@ def make_nn():
     # pca = sklearn.decomposition.PCA(n_components=0.99, whiten=True)
 
     model = helpers.neural.NnRegressor(num_epochs=500,
-                                       batch_size=200,
+                                       batch_size=64,
                                        learning_rate=0.001,
                                        dropout=0.5,
                                        activation="tanh",
@@ -305,7 +305,7 @@ def make_nn():
                                        l2=0.0001,
                                        maxnorm=True,
                                        assert_finite=False,
-                                       verbose=0)
+                                       verbose=1)
 
     # return sklearn.pipeline.Pipeline([("pca", pca), ("nn", model)])
 
@@ -340,7 +340,7 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params):
 def experiment_rnn(X_train, Y_train, args, splits):
     Y_train = Y_train.values
 
-    model = helpers.neural.RnnRegressor(num_units=100, time_steps=5, batch_size=200, num_epochs=500, verbose=1)
+    model = helpers.neural.RnnRegressor(learning_rate=1e-3, num_units=100, time_steps=5, batch_size=64, num_epochs=500, verbose=1, input_noise=0.1, early_stopping=True, recurrent_dropout=0.2, dropout=0.4)
     cross_validate(X_train, Y_train, model, splits)
 
 def score_feature(X_train, Y_train, splits):
@@ -466,9 +466,9 @@ def main():
 
     # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
 
-    # experiment_rnn(X_train, Y_train, args, splits)
-
     experiment_neural_network(X_train, Y_train, args, splits, tune_params=True)
+
+    experiment_rnn(X_train, Y_train, args, splits)
 
 
 def make_scaler():
