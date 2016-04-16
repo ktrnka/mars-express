@@ -78,7 +78,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
         optimizer = keras.optimizers.Adam(**self._get_optimizer_kwargs())
         model.compile(loss=self.loss, optimizer=optimizer)
 
-        model.fit(X, y, nb_epoch=self.num_epochs, **self._get_fit_kwargs(X))
+        model.fit(X, y, **self._get_fit_kwargs(X))
 
         self.model_ = model
         return self
@@ -97,7 +97,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
 
     def _get_fit_kwargs(self, X):
         """Apply settings to the fit function keyword args"""
-        kwargs = {"verbose": self.verbose, "callbacks": []}
+        kwargs = {"verbose": self.verbose, "nb_epoch": self.num_epochs, "callbacks": []}
 
         if self.early_stopping:
             es = keras.callbacks.EarlyStopping(monitor="loss", patience=self.num_epochs / 20, verbose=self.verbose, mode="min")
@@ -139,17 +139,30 @@ class NnRegressor(sklearn.base.BaseEstimator):
 
         return kwargs
 
-
 class RnnRegressor(NnRegressor):
     def __init__(self, num_units=50, time_steps=5, batch_size=100, num_epochs=100, unit="lstm", verbose=0,
-                 early_stopping=False):
-        super(RnnRegressor, self).__init__(batch_size=batch_size, num_epochs=num_epochs, verbose=verbose, early_stopping=early_stopping)
+                 early_stopping=False, dropout=None, recurrent_dropout=None, loss="mse", input_noise=0., learning_rate=0.001):
+        super(RnnRegressor, self).__init__(batch_size=batch_size, num_epochs=num_epochs, verbose=verbose, early_stopping=early_stopping, dropout=dropout, loss=loss, input_noise=input_noise, learning_rate=learning_rate)
         self.num_units = num_units
         self.time_steps = time_steps
         self.unit = unit
+        self.recurrent_dropout = recurrent_dropout
 
     def _transform_input(self, X):
         return helpers.general.prepare_time_matrix(X, self.time_steps, fill_value=0)
+
+    def _get_recurrent_layer_kwargs(self):
+        """Apply settings to dense layer keyword args"""
+        kwargs = {"output_dim": self.num_units}
+
+        # This might be questionable because it's input layer dropout
+        if self.dropout:
+            kwargs["dropout_W"] = self.dropout
+
+        if self.recurrent_dropout:
+            kwargs["dropout_U"] = self.recurrent_dropout
+
+        return kwargs
 
     def fit(self, X, Y, **kwargs):
         self.set_params(**kwargs)
@@ -158,18 +171,20 @@ class RnnRegressor(NnRegressor):
 
         X_time = self._transform_input(X)
 
+        model.add(keras.layers.noise.GaussianNoise(self.input_noise, input_shape=X_time.shape[1:]))
+
         # hidden layer
         if self.unit == "lstm":
-            model.add(keras.layers.recurrent.LSTM(self.num_units, input_shape=X_time.shape[1:]))
+            model.add(keras.layers.recurrent.LSTM(**self._get_recurrent_layer_kwargs()))
         elif self.unit == "gru":
-            model.add(keras.layers.recurrent.GRU(self.num_units, input_shape=X_time.shape[1:]))
+            model.add(keras.layers.recurrent.GRU(**self._get_recurrent_layer_kwargs()))
         else:
             raise ValueError("Unknown unit type: {}".format(self.unit))
 
         # output layer
-        model.add(keras.layers.core.Dense(output_dim=Y.shape[1]))
+        model.add(keras.layers.core.Dense(output_dim=Y.shape[1], **self._get_dense_layer_kwargs()))
 
-        optimizer = keras.optimizers.RMSprop()
+        optimizer = keras.optimizers.RMSprop(**self._get_optimizer_kwargs())
         model.compile(loss="mse", optimizer=optimizer)
 
         model.fit(X_time, Y, **self._get_fit_kwargs(X))

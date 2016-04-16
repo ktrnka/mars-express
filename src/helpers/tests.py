@@ -134,6 +134,7 @@ class ModelTests(unittest.TestCase):
     def test_rnn(self):
         X, Y = _build_summation_data(1000, lag=4)
 
+        # baseline linear regression
         baseline_model = sklearn.linear_model.LinearRegression().fit(X, Y)
 
         baseline_predictions = baseline_model.predict(X)
@@ -142,24 +143,25 @@ class ModelTests(unittest.TestCase):
         self.assertLess(baseline_error, 0.1)
 
         # test non-RNN
-        model = helpers.neural.NnRegressor(activation="tanh", batch_size=50, num_epochs=100, verbose=0, input_noise=0.0001,
-                                           early_stopping=True)
+        model = helpers.neural.NnRegressor(activation="tanh", batch_size=50, num_epochs=100, verbose=0, early_stopping=True)
         model.fit(X, Y)
         mlp_predictions = model.predict(X)
         self.assertEqual(Y.shape, mlp_predictions.shape)
         mlp_error = ((Y - mlp_predictions) ** 2).mean().mean()
-        self.assertLess(mlp_error, baseline_error * 1.5)
+        self.assertLess(mlp_error, baseline_error * 1.2)
 
         # test RNN
-        model = helpers.neural.RnnRegressor(num_epochs=200, batch_size=50, num_units=100, time_steps=5, early_stopping=True, verbose=1)
+        model = helpers.neural.RnnRegressor(num_epochs=200, batch_size=50, num_units=50, time_steps=5, early_stopping=True)
         model.fit(X, Y)
         rnn_predictions = model.predict(X)
 
         self.assertEqual(Y.shape, rnn_predictions.shape)
         error = ((Y - rnn_predictions) ** 2).mean().mean()
 
-        # should be more than 2x better
-        self.assertLessEqual(error, mlp_error / 2)
+        print "RNN error", error
+
+        # should be more than 10x better
+        self.assertLessEqual(error, mlp_error / 10)
 
     def test_build_data(self):
         X, Y = _build_data(100)
