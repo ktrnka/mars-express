@@ -2,12 +2,13 @@ from __future__ import unicode_literals
 import sys
 import argparse
 from train_test import *
-
+import os.path
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
     parser.add_argument("--model", default="nn", help="Model to generate predictions with")
+    parser.add_argument("--graph", default=None, help="Graph to create of predictions for top few outputs compared to baseline")
     parser.add_argument("training_dir", help="Dir with the training CSV files")
     parser.add_argument("testing_dir", help="Dir with the testing files, including the empty prediction file")
     parser.add_argument("prediction_file", help="Destination for predictions")
@@ -24,12 +25,34 @@ def get_model(model_name):
     else:
         raise ValueError("Unknown model abbreviation '{}'".format(model_name))
 
+
+def graph_predictions(X_test, baseline_model, model, Y_train, output_file, test_index):
+    important_columns = [c for c, _ in rate_columns(Y_train).most_common(5)]
+    output_names = Y_train.columns
+
+    Y_baseline = pandas.DataFrame(baseline_model.predict(X_test), columns=output_names, index=test_index)
+    Y_baseline = Y_baseline[important_columns]
+    Y_model = pandas.DataFrame(model.predict(X_test), columns=output_names, index=test_index)
+    Y_model = Y_model[important_columns]
+
+    axes = Y_baseline.resample("1D").mean().plot(figsize=(16, 9), ylim=(0, 2))
+    axes.get_figure().savefig(with_model_name(output_file, baseline_model), dpi=300)
+
+    axes = Y_model.resample("1D").mean().plot(figsize=(16, 9), ylim=(0, 2))
+    axes.get_figure().savefig(with_model_name(output_file, model), dpi=300)
+
+
+def rate_columns(data):
+    """Rate columns by mean and stddev"""
+    return collections.Counter({c: data[c].mean() + data[c].std() for c in data.columns})
+
+
 def predict_test_data(X_train, Y_train, scaler, args):
     # retrain baseline model as a sanity check
     baseline_model = sklearn.dummy.DummyRegressor("mean").fit(X_train, Y_train)
 
     # retrain a model on the full data
-    model = get_model(args.model_name).fit(X_train, Y_train.values)
+    model = get_model(args.model).fit(X_train, Y_train.values)
 
     test_data = load_data(args.testing_dir)
     X_test, Y_test = separate_output(test_data)
@@ -38,6 +61,9 @@ def predict_test_data(X_train, Y_train, scaler, args):
     test_data[Y_train.columns] = model.predict(X_test)
 
     verify_predictions(X_test, baseline_model, model)
+
+    if args.graph:
+        graph_predictions(X_test, baseline_model, model, Y_train, args.graph, test_data.index)
 
     # redo the index as unix timestamp
     test_data.index = test_data.index.astype(numpy.int64) / 10 ** 6
@@ -68,17 +94,20 @@ def verify_predictions(X_test, baseline_model, model):
 
     assert overall_delta < 2
 
+def _with_extra(filename, extra_info):
+    base, ext = os.path.splitext(filename)
+    return "".join([base, ".", extra_info, ext])
 
 def with_num_features(filename, X):
-    return filename.replace(".", ".{}_features.".format(X.shape[1]), 1)
+    return _with_extra(filename, "{}_features".format(X.shape[1]))
 
 
 def with_model_name(filename, model):
-    return filename.replace(".", ".{}.".format(type(model).__name__), 1)
+    return _with_extra(filename, helpers.sk.get_model_name(model, format="{}_{}"))
 
 
 def with_date(filename):
-    return filename.replace(".", ".{}.".format(datetime.datetime.now().strftime("%m_%d")), 1)
+    return _with_extra(filename, datetime.datetime.now().strftime("%m_%d"))
 
 
 def main():

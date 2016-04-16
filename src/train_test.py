@@ -191,11 +191,11 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
 
-    dmop_subsystems = get_dmop_subsystem(dmop_data)
-    for subsys, hours in [("TTT", 1), ("PENS", 1), ("PENE", 1), ("AAA", 1), ("OOO", 1), ("ACF", 1), ("SSS", 1)]:
-        dest_name = "DMOP_{}_under_{}h_ago".format(subsys, hours)
-        event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_dmop_ranges(dmop_subsystems, subsys, hours))
-        add_lag_feature(event_sampled_df, dest_name, 12, "1h", drop=True)
+    # dmop_subsystems = get_dmop_subsystem(dmop_data)
+    # for subsys, hours in [("TTT", 1), ("PENS", 1), ("PENE", 1), ("AAA", 1), ("OOO", 1), ("ACF", 1), ("SSS", 1)]:
+    #     dest_name = "DMOP_{}_under_{}h_ago".format(subsys, hours)
+    #     event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_dmop_ranges(dmop_subsystems, subsys, hours))
+    #     add_lag_feature(event_sampled_df, dest_name, 12, "1h", drop=True)
 
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)

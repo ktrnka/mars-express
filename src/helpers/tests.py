@@ -10,7 +10,7 @@ import numpy
 import sklearn.pipeline
 import sklearn.linear_model
 import sklearn.metrics
-
+import sklearn.dummy
 
 class HelperTests(unittest.TestCase):
     def test_time_cross_validation_splitter(self):
@@ -95,25 +95,35 @@ def _build_summation_data(n, lag=4):
 
     return X[lag-1:,:], Y
 
+
 def _build_identity(n):
-    return numpy.asarray(range(n))[:, numpy.newaxis], numpy.asarray(range(n))[:, numpy.newaxis]
+    X = numpy.random.rand(n, 1)
+    return X, X
 
 
 class ModelTests(unittest.TestCase):
     def test_nn_identity(self):
         X, Y = _build_identity(100)
-        model = helpers.neural.NnRegressor(learning_rate=0.5, input_noise=0.00001, num_epochs=200, loss="mae",
-                                           dropout=None, hidden_units=5, early_stopping=True, verbose=1)
-        model.fit(X, Y)
 
-        # This test is incredibly frustrating
-        self.assertAlmostEqual(0, sklearn.metrics.mean_absolute_error(Y, model.predict(X)))
+        baseline_model = sklearn.dummy.DummyRegressor("mean").fit(X, Y)
+        baseline_error = sklearn.metrics.mean_squared_error(Y, baseline_model.predict(X))
+
+        nn = helpers.neural.NnRegressor(learning_rate=0.05, num_epochs=200, hidden_units=5, verbose=1)
+        nn.fit(X, Y)
+        nn_error = sklearn.metrics.mean_squared_error(Y, nn.predict(X))
+
+        # should fit better than baseline
+        self.assertLess(nn_error, baseline_error)
+        self.assertLess(nn_error, baseline_error / 100)
+
+        # should be able to fit the training data completely (but doesn't, depending on the data)
+        self.assertAlmostEqual(0, nn_error, places=4)
 
     def test_nn_regression_model(self):
+        # TODO: Replace this with Boston dataset or something
         X, Y = _build_data(100)
 
-        model = helpers.neural.NnRegressor(learning_rate=0.01, num_epochs=1000, input_noise=0.01, dropout=0.,
-                                           hidden_layer_sizes=(3,))
+        model = helpers.neural.NnRegressor(learning_rate=0.01, num_epochs=1000, hidden_units=3)
         model.fit(X, Y)
 
         Y_pred = model.predict(X)
