@@ -1,8 +1,13 @@
 from __future__ import unicode_literals
 
+import datetime
+import os
+
 import time
 
 import numpy
+
+import helpers.sk
 
 
 def number_string(number, singular_unit, plural_unit, format_string="{} {}"):
@@ -46,3 +51,20 @@ def prepare_time_matrix(X, time_steps=5, fill_value=None):
             X_time[t, :missing_steps-1, :] = fill_value
 
     return X_time
+
+
+def _with_extra(filename, extra_info):
+    base, ext = os.path.splitext(filename)
+    return "".join([base, ".", extra_info, ext])
+
+
+def with_num_features(filename, X):
+    return _with_extra(filename, "{}_features".format(X.shape[1]))
+
+
+def with_model_name(filename, model):
+    return _with_extra(filename, helpers.sk.get_model_name(model, format="{}_{}"))
+
+
+def with_date(filename):
+    return _with_extra(filename, datetime.datetime.now().strftime("%m_%d"))

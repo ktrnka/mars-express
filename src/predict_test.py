@@ -1,8 +1,8 @@
 from __future__ import unicode_literals
-import sys
-import argparse
+
+from helpers.general import with_num_features, with_model_name, with_date
 from train_test import *
-import os.path
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -43,6 +43,7 @@ def graph_predictions(X_test, baseline_model, model, Y_train, output_file, test_
 
 
 def rate_columns(data):
+    # TODO: This is a candidate for shared lib
     """Rate columns by mean and stddev"""
     return collections.Counter({c: data[c].mean() + data[c].std() for c in data.columns})
 
@@ -93,21 +94,6 @@ def verify_predictions(X_test, baseline_model, model):
     print "Average percent change from baseline predictions: {:.2f}%".format(100. * overall_delta)
 
     assert overall_delta < 2
-
-def _with_extra(filename, extra_info):
-    base, ext = os.path.splitext(filename)
-    return "".join([base, ".", extra_info, ext])
-
-def with_num_features(filename, X):
-    return _with_extra(filename, "{}_features".format(X.shape[1]))
-
-
-def with_model_name(filename, model):
-    return _with_extra(filename, helpers.sk.get_model_name(model, format="{}_{}"))
-
-
-def with_date(filename):
-    return _with_extra(filename, datetime.datetime.now().strftime("%m_%d"))
 
 
 def main():

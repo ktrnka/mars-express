@@ -142,6 +142,9 @@ def load_series(files, add_file_number=False, resample_interval=None, date_cols=
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
     logger = logging.getLogger("load_data")
 
+    if not os.path.isdir(data_dir):
+        return pandas.read_csv(data_dir, index_col=0, parse_dates=True)
+
     # load the base power data
     data = load_series(find_files(data_dir, "power"), add_file_number=True, resample_interval=resample_interval)
 
