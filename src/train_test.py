@@ -301,11 +301,12 @@ def make_nn():
                                        input_noise=0.1,
                                        hidden_units=200,
                                        early_stopping=True,
+                                       val=0.1,
                                        loss="mse",
                                        l2=0.0001,
                                        maxnorm=True,
-                                       assert_finite=False,
-                                       verbose=1)
+                                       history_file="nn_training.csv",
+                                       assert_finite=False)
 
     # return sklearn.pipeline.Pipeline([("pca", pca), ("nn", model)])
 
@@ -340,8 +341,24 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params):
 def experiment_rnn(X_train, Y_train, args, splits):
     Y_train = Y_train.values
 
-    model = helpers.neural.RnnRegressor(learning_rate=1e-3, num_units=100, time_steps=5, batch_size=64, num_epochs=500, verbose=1, input_noise=0.1, early_stopping=True, recurrent_dropout=0.2, dropout=0.4)
+    model = helpers.neural.RnnRegressor(learning_rate=3e-4, num_units=50, time_steps=5, batch_size=64, num_epochs=500, verbose=1, input_noise=0.1, early_stopping=True, recurrent_dropout=0.5, dropout=0.5, val=0.1, history_file="rnn_training.csv")
     cross_validate(X_train, Y_train, model, splits)
+
+    hyperparams = {
+        "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
+        "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
+        "recurrent_dropout": [0.1, 0.3, 0.5, 0.7],
+        "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-3, 1e-5),
+        "time_steps": [3, 5],
+        "val": [0, 0.1]
+    }
+    model.verbose = 0
+    wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=20, n_jobs=1, scoring=rms_error)
+    # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
+
+    wrapped_model.fit(X_train, Y_train)
+    wrapped_model.print_tuning_scores()
+
 
 def score_feature(X_train, Y_train, splits):
     scaler = sklearn.preprocessing.RobustScaler()
