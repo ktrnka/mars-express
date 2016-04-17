@@ -12,6 +12,8 @@ import numpy
 import pandas
 import sklearn
 import keras.layers.recurrent
+import time
+
 import helpers.general
 import sklearn.utils
 import pandas
@@ -59,8 +61,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
     def fit(self, X, y, **kwargs):
         self.set_params(**kwargs)
 
-        if self.verbose >= 1:
-            print "Fitting input shape {}, output shape {}".format(X.shape, y.shape)
+        self.logger.debug("X: {}, Y: {}".format(X.shape, y.shape))
 
         model = keras.models.Sequential()
 
@@ -86,11 +87,20 @@ class NnRegressor(sklearn.base.BaseEstimator):
         optimizer = keras.optimizers.Adam(**self._get_optimizer_kwargs())
         model.compile(loss=self.loss, optimizer=optimizer)
 
-        self._save_history(model.fit(X, y, **self._get_fit_kwargs(X)))
-
         self.model_ = model
-        self.logger.info("Model has {:,} params".format(self.count_params()))
+        self._run_fit(X, y)
+
         return self
+
+    def _run_fit(self, X, y):
+        t = time.time()
+        history = self.model_.fit(X, y, **self._get_fit_kwargs(X))
+        t = time.time() - t
+
+        self._save_history(history)
+
+        self.logger.info("Training {:,} rows/sec".format(int(X.shape[0] * len(history.epoch) / t)))
+        self.logger.debug("Model has {:,} params".format(self.count_params()))
 
     def _get_dense_layer_kwargs(self):
         """Apply settings to dense layer keyword args"""
@@ -193,8 +203,8 @@ class RnnRegressor(NnRegressor):
 
         X_time = self._transform_input(X)
 
-        self.logger.info("X takes %d mb", X.nbytes / 10e6)
-        self.logger.info("X_time takes %d mb", X_time.nbytes / 10e6)
+        self.logger.debug("X takes %d mb", X.nbytes / 10e6)
+        self.logger.debug("X_time takes %d mb", X_time.nbytes / 10e6)
 
         model.add(keras.layers.noise.GaussianNoise(self.input_noise, input_shape=X_time.shape[1:]))
 
@@ -215,12 +225,9 @@ class RnnRegressor(NnRegressor):
 
         optimizer = keras.optimizers.RMSprop(**self._get_optimizer_kwargs())
         model.compile(loss="mse", optimizer=optimizer)
-
-        self._save_history(model.fit(X_time, Y, **self._get_fit_kwargs(X)))
-
         self.model_ = model
 
-        self.logger.info("Model has {:,} params".format(self.count_params()))
+        self._run_fit(X_time, Y)
 
         return self
 
