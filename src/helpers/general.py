@@ -79,3 +79,6 @@ def get_function_logger(num_calls_ago=1):
     if file_name:
         file_name = os.path.basename(file_name)
     return logging.getLogger("{}:{}".format(file_name, function_name))
+
+def get_class_logger(obj):
+    return logging.getLogger(type(obj).__name__)

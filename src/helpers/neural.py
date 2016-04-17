@@ -46,7 +46,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
         self.val = val
         self.history_file = history_file
 
-        self.logger = logging.getLogger(type(self).__name__)
+        self.logger = helpers.general.get_class_logger(self)
 
         self.model_ = None
 
@@ -172,7 +172,7 @@ class RnnRegressor(NnRegressor):
         self.recurrent_dropout = recurrent_dropout
         self.use_maxnorm = True
 
-        self.logger = logging.getLogger(type(self).__name__)
+        self.logger = helpers.general.get_class_logger(self)
 
     def _transform_input(self, X):
         return helpers.general.prepare_time_matrix(X, self.time_steps, fill_value=0)
