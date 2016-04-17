@@ -1,4 +1,6 @@
 from __future__ import unicode_literals
+
+import logging
 import sys
 import argparse
 import train_test
@@ -19,8 +21,11 @@ def parse_args():
 def main():
     args = parse_args()
 
+    logging.basicConfig(level=logging.DEBUG)
+
     train_data = train_test.load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
-    train_data.to_csv(with_num_features(with_date(args.output)))
+    X, _ = train_test.separate_output(train_data)
+    train_data.to_csv(with_num_features(with_date(args.output), X))
 
 
 if __name__ == "__main__":

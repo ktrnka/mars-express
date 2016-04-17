@@ -138,11 +138,12 @@ def load_series(files, add_file_number=False, resample_interval=None, date_cols=
 
     return data
 
-
+@helpers.general.Timed
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
     logger = logging.getLogger("load_data")
 
     if not os.path.isdir(data_dir):
+        print "Input is a file, reading directly"
         return pandas.read_csv(data_dir, index_col=0, parse_dates=True)
 
     # load the base power data
@@ -241,7 +242,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(data, "FTL_ACROSS_TRACK", 200, "200")
         add_lag_feature(data, "FTL_NADIR", 400, "400")
 
-
+    logger.info("DataFrame shape %s", data.shape)
     return data
 
 
@@ -304,7 +305,7 @@ def make_nn():
                                        input_noise=0.1,
                                        hidden_units=200,
                                        early_stopping=True,
-                                       val=0.1,
+                                       # val=0.1,
                                        loss="mse",
                                        l2=0.0001,
                                        maxnorm=True,
@@ -316,7 +317,7 @@ def make_nn():
     return model
 
 @helpers.general.Timed
-def experiment_neural_network(X_train, Y_train, args, splits, tune_params):
+def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False):
     Y_train = Y_train.values
 
     model = make_nn()
@@ -325,42 +326,42 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params):
     if args.analyse_hyperparameters and tune_params:
         print "Running hyperparam opt"
         nn_hyperparams = {
-            "batch_size": [200, 500],
-            "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
-            "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
-            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(0.005, 0.0005),
+            # "batch_size": [200, 500],
+            # "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
+            "dropout": [0.4, 0.5, 0.6],
+            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-1, 1e-3),
             "activation": ["sigmoid", "tanh", "elu"],
-            "hidden_layer_sizes": [(100,), (200,), (100, 100)],
-            "loss": ["mse", "mae"]
+            # "hidden_layer_sizes": [(100,), (200,), (100, 100)],
+            # "loss": ["mse", "mae"]
         }
         model = make_nn()
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=20, n_jobs=1, scoring=rms_error)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=30, n_jobs=1, scoring=rms_error)
         # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
 
         wrapped_model.fit(X_train, Y_train)
         wrapped_model.print_tuning_scores()
 
 @helpers.general.Timed
-def experiment_rnn(X_train, Y_train, args, splits):
+def experiment_rnn(X_train, Y_train, args, splits, tune_params=False):
     Y_train = Y_train.values
 
-    model = helpers.neural.RnnRegressor(learning_rate=3e-4, num_units=50, time_steps=5, batch_size=64, num_epochs=500, verbose=1, input_noise=0.1, early_stopping=True, recurrent_dropout=0.5, dropout=0.5, val=0.1, history_file="rnn_training.csv")
+    model = helpers.neural.RnnRegressor(learning_rate=3e-4, num_units=50, time_steps=5, batch_size=64, num_epochs=500, verbose=0, input_noise=0.1, early_stopping=True, recurrent_dropout=0.5, dropout=0.5, val=0.1, history_file="rnn_training.csv", assert_finite=False)
     cross_validate(X_train, Y_train, model, splits)
 
-    hyperparams = {
-        "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
-        "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
-        "recurrent_dropout": [0.1, 0.3, 0.5, 0.7],
-        "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-3, 1e-5),
-        "time_steps": [3, 5],
-        "val": [0, 0.1]
-    }
-    model.verbose = 0
-    wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=20, n_jobs=1, scoring=rms_error)
-    # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
+    if args.analyse_hyperparameters and tune_params:
+        hyperparams = {
+            # "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
+            "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
+            "recurrent_dropout": [0.3, 0.4, 0.5, 0.6, 0.7],
+            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 1e-4),
+            "time_steps": [3, 5],
+            "val": [0]
+        }
+        model.verbose = 0
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=20, n_jobs=1, scoring=rms_error)
 
-    wrapped_model.fit(X_train, Y_train)
-    wrapped_model.print_tuning_scores()
+        wrapped_model.fit(X_train, Y_train)
+        wrapped_model.print_tuning_scores()
 
 
 def score_feature(X_train, Y_train, splits):
@@ -471,7 +472,6 @@ def main():
     feature_names = X_train.columns
     X_train = scaler.fit_transform(X_train)
 
-    # lower bound: predict mean
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(X_train, Y_train, baseline_model, splits)
 
@@ -480,15 +480,11 @@ def main():
 
     experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
 
-    experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=True)
+    experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
-    # experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False)
+    experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
-    # experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=True)
-
-    experiment_neural_network(X_train, Y_train, args, splits, tune_params=True)
-
-    experiment_rnn(X_train, Y_train, args, splits)
+    experiment_rnn(X_train, Y_train, args, splits, tune_params=True)
 
 
 def make_scaler():
@@ -635,6 +631,7 @@ def cross_validate(X_train, Y_train, model, splits):
 
 
 def separate_output(dataframe, num_outputs=None):
+    logger = logging.getLogger("data")
     dataframe.drop("file_number", axis=1, inplace=True)
 
     Y = dataframe[[col for col in dataframe.columns if col.startswith("NPWD")]]
@@ -643,6 +640,7 @@ def separate_output(dataframe, num_outputs=None):
         Y = Y[[col for col, _ in scores.most_common(num_outputs)]]
 
     X = dataframe[[col for col in dataframe.columns if not col.startswith("NPWD")]]
+    logger.info("X, Y shapes %s %s", X.shape, Y.shape)
     return X, Y
 
 

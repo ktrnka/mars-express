@@ -21,7 +21,7 @@ class Timed(object):
 
     def __call__(self, *args, **kwargs):
         start_time = time.time()
-        self.func(*args, **kwargs)
+        retval = self.func(*args, **kwargs)
         elapsed = time.time() - start_time
 
         hours, seconds = divmod(elapsed, 60 * 60)
@@ -31,6 +31,8 @@ class Timed(object):
             time_string = ", ".join((number_string(hours, "hour", "hours"), time_string))
 
         print "{} took {}".format(self.func.__name__, time_string)
+
+        return retval
 
 
 def prepare_time_matrix(X, time_steps=5, fill_value=None):
