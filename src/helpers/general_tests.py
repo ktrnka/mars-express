@@ -6,7 +6,8 @@ import helpers.general
 
 
 class TimeShiftTests(unittest.TestCase):
-    def _get_data(self, n=100):
+    @staticmethod
+    def _get_data(n=100):
         X = numpy.asarray(range(n))
         return numpy.vstack([X, X ** 2, X ** 3]).transpose()
 

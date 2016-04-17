@@ -1,3 +1,4 @@
+from __future__ import print_function
 from __future__ import unicode_literals
 
 from helpers.general import with_num_features, with_model_name, with_date
@@ -81,17 +82,17 @@ def verify_predictions(X_test, baseline_model, model):
     unusual_rows = ~(per_row < 5)
     unusual_count = unusual_rows.sum()
     if unusual_count > 0:
-        print "{:.1f}% ({:,} / {:,}) of rows have unusual predictions:".format(100. * unusual_count / predictions.shape[0], unusual_count, predictions.shape[0])
+        print("{:.1f}% ({:,} / {:,}) of rows have unusual predictions:".format(100. * unusual_count / predictions.shape[0], unusual_count, predictions.shape[0]))
 
         unusual_inputs = X_test[unusual_rows].reshape(-1, X_test.shape[1])
         unusual_outputs = predictions[unusual_rows].reshape(-1, predictions.shape[1])
 
         for i in xrange(unusual_inputs.shape[0]):
-            print "Input: ", unusual_inputs[i]
-            print "Output: ", unusual_outputs[i]
+            print(("Input: ", unusual_inputs[i]))
+            print(("Output: ", unusual_outputs[i]))
 
     overall_delta = per_row.mean()
-    print "Average percent change from baseline predictions: {:.2f}%".format(100. * overall_delta)
+    print("Average percent change from baseline predictions: {:.2f}%".format(100. * overall_delta))
 
     assert overall_delta < 2
 

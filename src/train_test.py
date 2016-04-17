@@ -1,21 +1,17 @@
+from __future__ import print_function
 from __future__ import unicode_literals
 
 import argparse
 import collections
+import logging
+import os
 import sys
 from operator import itemgetter
 
-import datetime
-
-import helpers.general
-import helpers.neural
-import helpers.sk
 import numpy
-import os
 import pandas
 import scipy.optimize
 import scipy.stats
-import logging
 import sklearn
 import sklearn.cross_validation
 import sklearn.decomposition
@@ -24,12 +20,16 @@ import sklearn.ensemble
 import sklearn.gaussian_process
 import sklearn.grid_search
 import sklearn.linear_model
+import sklearn.metrics
 import sklearn.pipeline
 import sklearn.preprocessing
 import sklearn.svm
-import sklearn.metrics
-from helpers.sk import MultivariateRegressionWrapper, print_feature_importances, rms_error
 from sklearn.linear_model import LinearRegression
+
+import helpers.general
+import helpers.neural
+import helpers.sk
+from helpers.sk import MultivariateRegressionWrapper, print_feature_importances, rms_error
 
 
 def parse_args():
@@ -143,7 +143,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     logger = helpers.general.get_function_logger()
 
     if not os.path.isdir(data_dir):
-        print "Input is a file, reading directly"
+        print("Input is a file, reading directly")
         return pandas.read_csv(data_dir, index_col=0, parse_dates=True)
 
     # load the base power data
@@ -269,7 +269,7 @@ def add_transformation_feature(data, feature, transform, drop=False):
     elif transform == "gradient":
         transformed = numpy.gradient(data[feature])
     else:
-        print "Unknown transform {} specified".format(transform)
+        print("Unknown transform {} specified".format(transform))
         sys.exit(-1)
 
     data[new_name] = transformed
@@ -285,7 +285,7 @@ def compute_upper_bounds(data):
         upsampled_data = downsampled_data.reindex(data.index, method="pad")
 
         rms = ((data - upsampled_data) ** 2).mean().mean() ** 0.5
-        print "RMS with {} approximation: {:.3f}".format(interval, rms)
+        print("RMS with {} approximation: {:.3f}".format(interval, rms))
 
 
 def make_nn():
@@ -324,7 +324,7 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
     cross_validate(X_train, Y_train, model, splits)
 
     if args.analyse_hyperparameters and tune_params:
-        print "Running hyperparam opt"
+        print("Running hyperparam opt")
         nn_hyperparams = {
             # "batch_size": [200, 500],
             # "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
@@ -399,9 +399,9 @@ def experiment_pairwise_features(X_train, Y_train, splits):
             save_pairwise_score("{} + {}".format(a, b), X_train[a] + X_train[b], Y_train, splits, threshold_score, feature_scores)
             save_pairwise_score("{} - {}".format(a, b), X_train[a] - X_train[b], Y_train, splits, threshold_score, feature_scores)
 
-    print "Feature correlations"
+    print("Feature correlations")
     for feature, mse in sorted(feature_scores.iteritems(), key=itemgetter(1)):
-        print "\t{}: {:.4f}".format(feature, mse)
+        print("\t{}: {:.4f}".format(feature, mse))
 
 
 def verify_data(train_df, test_df, filename):
@@ -422,7 +422,7 @@ def verify_data(train_df, test_df, filename):
     train_std = train_df.std()
     for feature, std in train_std.iteritems():
         if std < 0.1:
-            print "{} stddev {}".format(feature, std)
+            print("{} stddev {}".format(feature, std))
 
     # scale both input and output
     train = sklearn.preprocessing.RobustScaler().fit_transform(train_df)
@@ -437,7 +437,7 @@ def verify_data(train_df, test_df, filename):
         logger.warn("Found {:,} deviant rows, saving to {}".format(deviant_df.shape[0], filename))
         deviant_df.to_csv(filename)
     else:
-        print "No deviant rows"
+        print("No deviant rows")
 
 
 def main():
@@ -461,7 +461,7 @@ def main():
 
     if args.extra_analysis:
         X_train.info()
-        print X_train.describe()
+        print(X_train.describe())
         compute_upper_bounds(train_data)
 
     if args.feature_pairs:
@@ -581,7 +581,7 @@ def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_para
         model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, ada_params, scoring=rms_error))
         cross_validate(X_train, Y_train, model, splits)
 
-        print "Refitting to show hyperparams"
+        print("Refitting to show hyperparams")
         model.fit(X_train, Y_train)
         model.print_best_params()
 
@@ -617,17 +617,17 @@ def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune
 def verify_splits(X, Y, splits):
     for i, (train, test) in enumerate(splits):
         # analyse train and test
-        print "Split {}".format(i)
+        print("Split {}".format(i))
 
-        print "\tX[train].mean diff: ", X[train].mean(axis=0) - X.mean(axis=0)
-        print "\tX[train].std diffs: ", X[train].std(axis=0) - X.std(axis=0)
-        print "\tY[train].mean: ", Y[train].mean(axis=0)
-        print "\tY[train].std: ", Y[train].std(axis=0).mean()
+        print("\tX[train].mean diff: ", X[train].mean(axis=0) - X.mean(axis=0))
+        print("\tX[train].std diffs: ", X[train].std(axis=0) - X.std(axis=0))
+        print("\tY[train].mean: ", Y[train].mean(axis=0))
+        print("\tY[train].std: ", Y[train].std(axis=0).mean())
 
 
 def cross_validate(X_train, Y_train, model, splits):
     scores = sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits)
-    print "{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std())
+    print("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
 
 
 def separate_output(df, num_outputs=None):

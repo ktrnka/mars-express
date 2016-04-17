@@ -1,3 +1,4 @@
+from __future__ import print_function
 from __future__ import unicode_literals
 
 import unittest
@@ -31,7 +32,7 @@ class HelperTests(unittest.TestCase):
         self.assertListEqual([(range(0, 25), range(25, 50)), (range(0, 50), range(50, 75)), (range(0, 75), range(75, 100))], splits)
 
         splits = list(helpers.sk.TimeCV(49125, 10))
-        print [(len(s), min(s), max(s), max(s) - min(s)) for _, s in splits]
+        print([(len(s), min(s), max(s), max(s) - min(s)) for _, s in splits])
         self.assertEqual(5, len(splits))
 
         for train, test in splits:
@@ -158,7 +159,7 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(Y.shape, rnn_predictions.shape)
         error = ((Y - rnn_predictions) ** 2).mean().mean()
 
-        print "RNN error", error
+        print("RNN error", error)
 
         # should be more than 10x better
         self.assertLessEqual(error, mlp_error / 10)

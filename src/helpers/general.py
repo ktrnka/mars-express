@@ -1,3 +1,4 @@
+from __future__ import print_function
 from __future__ import unicode_literals
 
 import datetime
@@ -18,6 +19,7 @@ def number_string(number, singular_unit, plural_unit, format_string="{} {}"):
 
 class Timed(object):
     """Decorator for timing how long a function takes"""
+
     def __init__(self, func):
         self.func = func
 
@@ -32,7 +34,7 @@ class Timed(object):
         if hours:
             time_string = ", ".join((number_string(hours, "hour", "hours"), time_string))
 
-        print "{} took {}".format(self.func.__name__, time_string)
+        print("{} took {}".format(self.func.__name__, time_string))
 
         return retval
 
@@ -52,7 +54,7 @@ def prepare_time_matrix(X, time_steps=5, fill_value=None):
     if fill_value is not None:
         for t in range(time_steps):
             missing_steps = time_steps - t
-            X_time[t, :missing_steps-1, :] = fill_value
+            X_time[t, :missing_steps - 1, :] = fill_value
 
     return X_time
 
@@ -79,6 +81,7 @@ def get_function_logger(num_calls_ago=1):
     if file_name:
         file_name = os.path.basename(file_name)
     return logging.getLogger("{}:{}".format(file_name, function_name))
+
 
 def get_class_logger(obj):
     return logging.getLogger(type(obj).__name__)

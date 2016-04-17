@@ -1,22 +1,20 @@
 from __future__ import unicode_literals
 
-import logging
+import time
 
 import keras.callbacks
 import keras.constraints
 import keras.layers
+import keras.layers.recurrent
 import keras.models
 import keras.optimizers
 import keras.regularizers
 import numpy
 import pandas
 import sklearn
-import keras.layers.recurrent
-import time
+import sklearn.utils
 
 import helpers.general
-import sklearn.utils
-import pandas
 
 _he_activations = {"relu"}
 

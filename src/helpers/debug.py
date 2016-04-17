@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 """
 Data is weird? Model is doing weird shit? This module helps but only if you have beer.
 """
@@ -53,7 +55,7 @@ def get_input_gradient(y_true, y_pred, x, model, eps=1e-4, param_eps=None, max_e
 
 def explain_input_gradient(input_gradient):
     for i, derivative in enumerate(input_gradient):
-        print "To get desired prediction, the model wants you to adjust feature {} by {}".format(i, -derivative)
+        print("To get desired prediction, the model wants you to adjust feature {} by {}".format(i, -derivative))
 
 
 def stack_all_perturbations(x, perturb_all, perturb_elements=None, dtype=numpy.float32):
@@ -79,8 +81,6 @@ class ExplanationTests(unittest.TestCase):
 
         Y = numpy.tile(X[:, 0], (num_outputs, 1)).transpose()
         Y += numpy.random.rand(*Y.shape)
-
-        print X.shape, Y.shape
 
         return X, Y
 

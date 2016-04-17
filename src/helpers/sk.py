@@ -1,3 +1,5 @@
+from __future__ import print_function
+from __future__ import unicode_literals
 import collections
 import logging
 import math
@@ -210,13 +212,13 @@ class MultivariateRegressionWrapper(sklearn.base.BaseEstimator):
         return {k: numpy.asarray(v) for k, v in params.iteritems()}
 
     def print_best_params(self):
-        print "Best hyperparameters for grid search inside of multivariate regression"
+        print("Best hyperparameters for grid search inside of multivariate regression")
 
         for name, dist in self.get_best_param_distributions().iteritems():
             try:
-                print "\t{}: {:.2f} +/- {:.2f}".format(name, dist.mean(), dist.std())
+                print("\t{}: {:.2f} +/- {:.2f}".format(name, dist.mean(), dist.std()))
             except TypeError:
-                print "\t{}: {}".format(name, collections.Counter(dist).most_common(1))
+                print("\t{}: {}".format(name, collections.Counter(dist).most_common(1)))
 
     def get_feature_importances(self, feature_names):
         feature_importances = collections.defaultdict(list)
@@ -236,11 +238,11 @@ class MultivariateRegressionWrapper(sklearn.base.BaseEstimator):
         return {k: numpy.asarray(v) for k, v in feature_importances.iteritems()}
 
     def print_feature_importances(self, feature_names):
-        print "Feature importances"
+        print("Feature importances")
 
         scores = self.get_feature_importances(feature_names)
         for name, dist in sorted(scores.iteritems(), key=lambda pair: pair[1].mean(), reverse=True):
-            print "\t{}: {:.3f} +/- {:.3f}".format(name, dist.mean(), dist.std())
+            print("\t{}: {:.3f} +/- {:.3f}".format(name, dist.mean(), dist.std()))
 
 
 def print_tuning_scores(tuned_estimator, reverse=True):
@@ -248,9 +250,9 @@ def print_tuning_scores(tuned_estimator, reverse=True):
     for test in sorted(tuned_estimator.grid_scores_, key=itemgetter(1), reverse=reverse):
         scores = test.cv_validation_scores
 
-        print "Validation score {:.4f} +/- {:.4f}, Hyperparams {}".format(scores.mean(),
+        print("Validation score {:.4f} +/- {:.4f}, Hyperparams {}".format(scores.mean(),
                                                                           scores.std(),
-                                                                          test.parameters)
+                                                                          test.parameters))
 
 
 def print_feature_importances(columns, classifier):
@@ -258,9 +260,9 @@ def print_feature_importances(columns, classifier):
     paired_features = zip(columns, classifier.feature_importances_)
     field_width = unicode(max(len(c) for c in columns))
     format_string = "\t{:" + field_width + "s}: {}"
-    print "Feature importances"
+    print("Feature importances")
     for feature_name, importance in sorted(paired_features, key=itemgetter(1), reverse=True):
-        print format_string.format(feature_name, importance)
+        print(format_string.format(feature_name, importance))
 
 
 class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
@@ -269,17 +271,17 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
     def print_tuning_scores(self, reverse=True):
         for test in sorted(self.grid_scores_, key=itemgetter(1), reverse=reverse):
             scores = test.cv_validation_scores
-            print "Validation score {:.4f} +/- {:.4f}, Hyperparams {}".format(scores.mean(),
+            print("Validation score {:.4f} +/- {:.4f}, Hyperparams {}".format(scores.mean(),
                                                                               scores.std(),
-                                                                              test.parameters)
+                                                                              test.parameters))
 
-        print "Hyperparameter correlations with evaluation metric"
+        print("Hyperparameter correlations with evaluation metric")
         for param, (stat_name, stat, pval, extras) in self.correlate_hyperparameters().iteritems():
-            print "\t{}: {} = {:.4f}, p = {:.4f}".format(param, stat_name, stat, pval)
+            print("\t{}: {} = {:.4f}, p = {:.4f}".format(param, stat_name, stat, pval))
 
             if extras:
                 for param_val, score in extras.most_common():
-                    print "\t\t{}: {:.4f}".format(param_val, score)
+                    print("\t\t{}: {:.4f}".format(param_val, score))
 
     def correlate_hyperparameters(self):
         param_scores = self._get_independent_scores()
@@ -342,7 +344,7 @@ class RandomizedSearchCV(sklearn.grid_search.RandomizedSearchCV):
 class LinearRegressionWrapper(sklearn.linear_model.LinearRegression):
     """Wrapper for LinearRegression that's compatible with GradientBoostingClassifier sample_weights"""
 
-    def fit(self, X, y, sample_weight, **kwargs):
+    def fit(self, X, y, sample_weight=None):
         super(LinearRegressionWrapper, self).fit(X, y)
 
     def predict(self, X):
