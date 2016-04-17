@@ -140,7 +140,7 @@ def load_series(files, add_file_number=False, resample_interval=None, date_cols=
 
 @helpers.general.Timed
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
-    logger = logging.getLogger("load_data")
+    logger = helpers.general.get_function_logger()
 
     if not os.path.isdir(data_dir):
         print "Input is a file, reading directly"
@@ -405,7 +405,7 @@ def experiment_pairwise_features(X_train, Y_train, splits):
 
 
 def verify_data(train_df, test_df, filename):
-    logger = logging.getLogger("verify_data")
+    logger = helpers.general.get_function_logger()
 
     # simple check on NaN
     data_na = train_df[[c for c in train_df.columns if not c.startswith("NPWD")]].isnull().sum()
@@ -630,16 +630,16 @@ def cross_validate(X_train, Y_train, model, splits):
     print "{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std())
 
 
-def separate_output(dataframe, num_outputs=None):
-    logger = logging.getLogger("data")
-    dataframe.drop("file_number", axis=1, inplace=True)
+def separate_output(df, num_outputs=None):
+    logger = helpers.general.get_function_logger()
+    df = df.drop("file_number", axis=1)
 
-    Y = dataframe[[col for col in dataframe.columns if col.startswith("NPWD")]]
+    Y = df[[col for col in df.columns if col.startswith("NPWD")]]
     if num_outputs:
         scores = collections.Counter({col: Y[col].mean() + Y[col].std() for col in Y.columns})
         Y = Y[[col for col, _ in scores.most_common(num_outputs)]]
 
-    X = dataframe[[col for col in dataframe.columns if not col.startswith("NPWD")]]
+    X = df[[col for col in df.columns if not col.startswith("NPWD")]]
     logger.info("X, Y shapes %s %s", X.shape, Y.shape)
     return X, Y
 

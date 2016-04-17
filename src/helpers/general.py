@@ -1,6 +1,8 @@
 from __future__ import unicode_literals
 
 import datetime
+import inspect
+import logging
 import os
 
 import time
@@ -70,3 +72,10 @@ def with_model_name(filename, model):
 
 def with_date(filename):
     return _with_extra(filename, datetime.datetime.now().strftime("%m_%d"))
+
+
+def get_function_logger(num_calls_ago=1):
+    _, file_name, _, function_name, _, _ = inspect.stack()[num_calls_ago]
+    if file_name:
+        file_name = os.path.basename(file_name)
+    return logging.getLogger("{}:{}".format(file_name, function_name))
