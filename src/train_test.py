@@ -328,14 +328,16 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
         nn_hyperparams = {
             # "batch_size": [200, 500],
             # "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
-            "dropout": [0.4, 0.5, 0.6],
-            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-1, 1e-3),
-            "activation": ["sigmoid", "tanh", "elu"],
+            # "dropout": [0.4, 0.5, 0.6],
+            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-1, 1e-4),
+            "optimizer": ["adam", "rmsprop", "adamax"]
+            # "activation": ["sigmoid", "tanh", "elu"],
             # "hidden_layer_sizes": [(100,), (200,), (100, 100)],
             # "loss": ["mse", "mae"]
         }
         model = make_nn()
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=30, n_jobs=1, scoring=rms_error)
+        model.history_file = None
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=30, scoring=rms_error)
         # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
 
         wrapped_model.fit(X_train, Y_train)
@@ -345,20 +347,23 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 def experiment_rnn(X_train, Y_train, args, splits, tune_params=False):
     Y_train = Y_train.values
 
-    model = helpers.neural.RnnRegressor(learning_rate=3e-4, num_units=50, time_steps=5, batch_size=64, num_epochs=500, verbose=0, input_noise=0.1, early_stopping=True, recurrent_dropout=0.5, dropout=0.5, val=0.1, history_file="rnn_training.csv", assert_finite=False)
+    model = helpers.neural.RnnRegressor(learning_rate=2e-3, num_units=50, time_steps=3, batch_size=64, num_epochs=500, verbose=0, input_noise=0.1, early_stopping=True, recurrent_dropout=0.5, dropout=0.5, val=0.1, history_file="rnn_training.csv", assert_finite=False, pretrain=True)
     cross_validate(X_train, Y_train, model, splits)
 
     if args.analyse_hyperparameters and tune_params:
         hyperparams = {
             # "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
-            "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
-            "recurrent_dropout": [0.3, 0.4, 0.5, 0.6, 0.7],
+            # "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
+            # "recurrent_dropout": [0.3, 0.4, 0.5, 0.6, 0.7],
             "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 1e-4),
-            "time_steps": [3, 5],
-            "val": [0]
+            # "time_steps": [3, 5],
+            # "val": [0.1]
+            # "batch_size": [1, 2, 4, 8, 16, 32, 64]
+            "optimizer": ["adam", "rmsprop", "adamax"]
         }
         model.verbose = 0
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=20, n_jobs=1, scoring=rms_error)
+        model.history_file = None
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=16, n_jobs=1, scoring=rms_error, refit=False)
 
         wrapped_model.fit(X_train, Y_train)
         wrapped_model.print_tuning_scores()
@@ -478,13 +483,16 @@ def main():
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, splits)
 
+    # just in case it helps
+    helpers.neural.set_theano_float_precision("float32")
+
     experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
 
     experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
-    experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
-
     experiment_rnn(X_train, Y_train, args, splits, tune_params=True)
+
+    experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
 
 def make_scaler():
@@ -625,8 +633,8 @@ def verify_splits(X, Y, splits):
         print("\tY[train].std: ", Y[train].std(axis=0).mean())
 
 
-def cross_validate(X_train, Y_train, model, splits):
-    scores = sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits)
+def cross_validate(X_train, Y_train, model, splits, n_jobs=1):
+    scores = sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits, n_jobs=n_jobs)
     print("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
 
 

@@ -13,17 +13,29 @@ import numpy
 import pandas
 import sklearn
 import sklearn.utils
+import theano
+import os
 
 import helpers.general
 
 _he_activations = {"relu"}
 
+def set_theano_float_precision(precision):
+    theano.config.floatX = precision
+
+def disable_theano_gc():
+    theano.config.allow_gc = False
+
+def enable_openmp():
+    print("Current OpenMP value:", theano.config.openmp)
+    theano.config.openmp = True
+    os.environ["OMP_NUM_THREADS"] = "2"
 
 class NnRegressor(sklearn.base.BaseEstimator):
     """Wrapper for Keras feed-forward neural network for regression to enable scikit-learn grid search"""
 
     def __init__(self, hidden_layer_sizes=(100,), hidden_units=None, dropout=None, batch_size=-1, loss="mse", num_epochs=500, activation="relu", input_noise=0., learning_rate=0.001, verbose=0, init=None, l2=None, batch_norm=False, early_stopping=False, clip_gradient_norm=None, assert_finite=True,
-                 maxnorm=False, val=0., history_file=None):
+                 maxnorm=False, val=0., history_file=None, theano_precision=None, optimizer="adam"):
         self.clip_gradient_norm = clip_gradient_norm
         self.assert_finite = assert_finite
         if hidden_units:
@@ -45,10 +57,24 @@ class NnRegressor(sklearn.base.BaseEstimator):
         self.use_maxnorm = maxnorm
         self.val = val
         self.history_file = history_file
+        self.theano_precision = theano_precision
+        self.optimizer = optimizer
 
         self.logger = helpers.general.get_class_logger(self)
 
         self.model_ = None
+
+    def _get_optimizer(self):
+        if self.optimizer == "adam":
+            return keras.optimizers.Adam(**self._get_optimizer_kwargs())
+        elif self.optimizer == "rmsprop":
+            return keras.optimizers.RMSprop(**self._get_optimizer_kwargs())
+        elif self.optimizer == "sgd":
+            return keras.optimizers.SGD(**self._get_optimizer_kwargs())
+        elif self.optimizer == "adamax":
+            return keras.optimizers.Adamax(**self._get_optimizer_kwargs())
+        else:
+            raise ValueError("Unknown optimizer {}".format(self.optimizer))
 
     def _get_activation(self):
         if self.activation == "elu":
@@ -82,7 +108,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
         # output layer
         model.add(keras.layers.core.Dense(output_dim=y.shape[1], **dense_kwargs))
 
-        optimizer = keras.optimizers.Adam(**self._get_optimizer_kwargs())
+        optimizer = self._get_optimizer()
         model.compile(loss=self.loss, optimizer=optimizer)
 
         self.model_ = model
@@ -112,9 +138,12 @@ class NnRegressor(sklearn.base.BaseEstimator):
 
         return dense_kwargs
 
-    def _get_fit_kwargs(self, X):
+    def _get_fit_kwargs(self, X, batch_size_override=None, num_epochs_override=None):
         """Apply settings to the fit function keyword args"""
         kwargs = {"verbose": self.verbose, "nb_epoch": self.num_epochs, "callbacks": []}
+
+        if num_epochs_override:
+            kwargs["nb_epoch"] = num_epochs_override
 
         if self.early_stopping:
             monitor = "val_loss" if self.val > 0 else "loss"
@@ -125,8 +154,12 @@ class NnRegressor(sklearn.base.BaseEstimator):
             kwargs["validation_split"] = self.val
 
         kwargs["batch_size"] = self.batch_size
+        if batch_size_override:
+            kwargs["batch_size"] = batch_size_override
         if kwargs["batch_size"] < 0 or kwargs["batch_size"] > X.shape[0]:
             kwargs["batch_size"] = X.shape[0]
+
+        self.logger.info("Fit kwargs: %s", kwargs)
 
         return kwargs
 
@@ -134,7 +167,8 @@ class NnRegressor(sklearn.base.BaseEstimator):
         return self.model_.count_params()
 
     def predict(self, X):
-        return self._check_finite(self.model_.predict(X))
+        retval = self._check_finite(self.model_.predict(X))
+        return retval
 
     def _check_finite(self, Y):
         if self.assert_finite:
@@ -172,13 +206,15 @@ class NnRegressor(sklearn.base.BaseEstimator):
 
 class RnnRegressor(NnRegressor):
     def __init__(self, num_units=50, time_steps=5, batch_size=100, num_epochs=100, unit="lstm", verbose=0,
-                 early_stopping=False, dropout=None, recurrent_dropout=None, loss="mse", input_noise=0., learning_rate=0.001, clip_gradient_norm=None, val=0, assert_finite=True, history_file=None):
-        super(RnnRegressor, self).__init__(batch_size=batch_size, num_epochs=num_epochs, verbose=verbose, early_stopping=early_stopping, dropout=dropout, loss=loss, input_noise=input_noise, learning_rate=learning_rate, clip_gradient_norm=clip_gradient_norm, val=val, assert_finite=assert_finite, history_file=history_file)
+                 early_stopping=False, dropout=None, recurrent_dropout=None, loss="mse", input_noise=0., learning_rate=0.001, clip_gradient_norm=None, val=0, assert_finite=True, history_file=None,
+                 pretrain=True, optimizer="adam"):
+        super(RnnRegressor, self).__init__(batch_size=batch_size, num_epochs=num_epochs, verbose=verbose, early_stopping=early_stopping, dropout=dropout, loss=loss, input_noise=input_noise, learning_rate=learning_rate, clip_gradient_norm=clip_gradient_norm, val=val, assert_finite=assert_finite, history_file=history_file, optimizer=optimizer)
         self.num_units = num_units
         self.time_steps = time_steps
         self.unit = unit
         self.recurrent_dropout = recurrent_dropout
         self.use_maxnorm = True
+        self.pretrain = pretrain
 
         self.logger = helpers.general.get_class_logger(self)
 
@@ -221,20 +257,24 @@ class RnnRegressor(NnRegressor):
         # output layer
         model.add(keras.layers.core.Dense(output_dim=Y.shape[1], **self._get_dense_layer_kwargs()))
 
-        optimizer = keras.optimizers.RMSprop(**self._get_optimizer_kwargs())
+        optimizer = self._get_optimizer()
         model.compile(loss="mse", optimizer=optimizer)
         self.model_ = model
+
+        if self.pretrain:
+            self.model_.fit(X_time, Y, **self._get_fit_kwargs(X, batch_size_override=1, num_epochs_override=1))
 
         self._run_fit(X_time, Y)
 
         return self
 
     def predict(self, X):
-        return self._check_finite(self.model_.predict(self._transform_input(X)))
+        r = self._check_finite(self.model_.predict(self._transform_input(X)))
+        return r
 
 
-def make_learning_rate_schedule(initial_value, exponential_decay=1.):
+def make_learning_rate_schedule(initial_value, exponential_decay=1., kick_every=10000):
     def schedule(epoch_num):
-        return initial_value * exponential_decay ** epoch_num
+        return initial_value * int(epoch_num / kick_every + 1) * exponential_decay ** epoch_num
 
     return schedule

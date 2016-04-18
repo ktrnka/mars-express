@@ -63,6 +63,17 @@ class HelperTests(unittest.TestCase):
         # test format on pipeline
         self.assertEqual("Pipeline_Nn", helpers.sk.get_model_name(pipe, format="{}_{}"))
 
+    def test_learning_rate_scheduler(self):
+        get_rate = helpers.neural.make_learning_rate_schedule(0.01, exponential_decay=0.995)
+
+        self.assertAlmostEqual(get_rate(50), 0.007783125570686419)
+        self.assertAlmostEqual(get_rate(200), 0.00366957821726167)
+
+        get_kicking_rate = helpers.neural.make_learning_rate_schedule(0.01, exponential_decay=0.995, kick_every=100)
+        self.assertAlmostEqual(get_kicking_rate(50), 0.007783125570686419)
+        self.assertAlmostEqual(get_kicking_rate(101), get_rate(101) * 2)
+        self.assertAlmostEqual(get_kicking_rate(201), get_rate(201) * 3)
+
 
 def _test_multivariate_regression(model, X, Y):
     model.fit(X, Y)
