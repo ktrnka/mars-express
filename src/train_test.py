@@ -450,41 +450,35 @@ def experiment_learning_rate_schedule(X_train, Y_train, splits):
 
     model = make_nn()
     model.val = 0.1
-    model.early_stopping = False
+    model.early_stopping = True
 
-    # # # base = no schedule
-    # print("Baseline NN 0.001")
-    # model.history_file = "nn_no_schedule_0.001.csv"
+    # base = no schedule
+    print("Baseline NN 0.001")
+    model.history_file = "nn_0.001.csv"
+    model.fit(X_train, Y_train)
+
+    # Without early stopping and no schedule this diverges
+    # print("Baseline NN 0.01")
+    # model.history_file = "nn_no_schedule_0.01.csv"
+    # model.learning_rate = 0.01
     # model.fit(X_train, Y_train)
-    #
-    # # Without early stopping and no schedule this diverges
-    # # print("Baseline NN 0.01")
-    # # model.history_file = "nn_no_schedule_0.01.csv"
-    # # model.learning_rate = 0.01
-    # # model.fit(X_train, Y_train)
-    #
+
     # higher init, decay set to reach the same at 40 epochs
-    # model.schedule = helpers.neural.make_learning_rate_schedule(0.01, exponential_decay=0.94406087628)
-    # print("NN with {}".format(model.schedule))
-    # model.history_file = "nn_schedule_0.01_0.944decay.csv"
-    # model.fit(X_train, Y_train)
-    #
-    # # higher init, decay set to reach the same at 40 epochs
+    model.schedule = helpers.neural.make_learning_rate_schedule(0.01, exponential_decay=0.94406087628)
+    print("NN with {}".format(model.schedule))
+    model.history_file = "nn_schedule_0.01_decay.csv"
+    model.fit(X_train, Y_train)
+
+    # higher init, decay set to reach the same at 40 epochs
     # model.schedule = helpers.neural.make_learning_rate_schedule(0.01, exponential_decay=0.94406087628, kick_every=50)
     # print("NN with {}".format(model.schedule))
-    # model.history_file = "nn_schedule_0.01_0.944decay_kick50.csv"
-    # model.fit(X_train, Y_train)
-
-    # model.schedule = None
-    # model.extra_callback = helpers.neural.VarianceLearningRateScheduler(0.01)
-    # print("NN with variance schedule")
-    # model.history_file = "nn_VarianceLearningRateScheduler_0.01_val.csv"
+    # model.history_file = "nn_schedule_0.01_decay_kick.csv"
     # model.fit(X_train, Y_train)
 
     model.schedule = None
-    model.extra_callback = helpers.neural.VarianceLearningRateScheduler(0.01, monitor="loss", scale=1.1)
+    model.extra_callback = helpers.neural.VarianceLearningRateScheduler(0.01, monitor="val_loss", scale=1.1)
     print("NN with variance schedule")
-    model.history_file = "nn_VarianceLearningRateScheduler_0.01_val_1.5_window2.csv"
+    model.history_file = "nn_variance_schedule_0.01.csv"
     model.fit(X_train, Y_train)
 
     sys.exit(0)

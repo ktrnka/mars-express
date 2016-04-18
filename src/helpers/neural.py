@@ -298,6 +298,9 @@ def make_learning_rate_schedule(initial_value, exponential_decay=1., kick_every=
 import keras.backend
 
 
+def sigmoid(x):
+    return 1 / (1 + numpy.exp(-x))
+
 class VarianceLearningRateScheduler(keras.callbacks.Callback):
     def __init__(self, initial_lr=0.01, monitor="val_loss", scale=2):
         super(VarianceLearningRateScheduler, self).__init__()
@@ -332,7 +335,7 @@ class VarianceLearningRateScheduler(keras.callbacks.Callback):
         diffs = baseline - data[-window:]
 
         # assume error, lower is better
-        percent_epochs_improved = (diffs > 0).mean()
+        percent_epochs_improved = sigmoid((diffs / baseline) / 0.02).mean()
         self.logger_.info("Ratio of good epochs: %.2f", percent_epochs_improved)
 
         if percent_epochs_improved > 0.75:
