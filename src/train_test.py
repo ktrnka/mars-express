@@ -356,14 +356,14 @@ def experiment_rnn(X_train, Y_train, args, splits, tune_params=False):
             # "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
             # "recurrent_dropout": [0.3, 0.4, 0.5, 0.6, 0.7],
             "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 1e-4),
-            # "time_steps": [3, 5],
+            "time_steps": [3, 50],
             # "val": [0.1]
             # "batch_size": [1, 2, 4, 8, 16, 32, 64]
             "optimizer": ["adam", "rmsprop", "adamax"]
         }
         model.verbose = 0
         model.history_file = None
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=16, n_jobs=1, scoring=rms_error, refit=False)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=5, n_jobs=1, scoring=rms_error, refit=False)
 
         wrapped_model.fit(X_train, Y_train)
         wrapped_model.print_tuning_scores()
@@ -445,6 +445,51 @@ def verify_data(train_df, test_df, filename):
         print("No deviant rows")
 
 
+def experiment_learning_rate_schedule(X_train, Y_train, splits):
+    Y_train = Y_train.values
+
+    model = make_nn()
+    model.val = 0.1
+    model.early_stopping = False
+
+    # # # base = no schedule
+    # print("Baseline NN 0.001")
+    # model.history_file = "nn_no_schedule_0.001.csv"
+    # model.fit(X_train, Y_train)
+    #
+    # # Without early stopping and no schedule this diverges
+    # # print("Baseline NN 0.01")
+    # # model.history_file = "nn_no_schedule_0.01.csv"
+    # # model.learning_rate = 0.01
+    # # model.fit(X_train, Y_train)
+    #
+    # higher init, decay set to reach the same at 40 epochs
+    # model.schedule = helpers.neural.make_learning_rate_schedule(0.01, exponential_decay=0.94406087628)
+    # print("NN with {}".format(model.schedule))
+    # model.history_file = "nn_schedule_0.01_0.944decay.csv"
+    # model.fit(X_train, Y_train)
+    #
+    # # higher init, decay set to reach the same at 40 epochs
+    # model.schedule = helpers.neural.make_learning_rate_schedule(0.01, exponential_decay=0.94406087628, kick_every=50)
+    # print("NN with {}".format(model.schedule))
+    # model.history_file = "nn_schedule_0.01_0.944decay_kick50.csv"
+    # model.fit(X_train, Y_train)
+
+    # model.schedule = None
+    # model.extra_callback = helpers.neural.VarianceLearningRateScheduler(0.01)
+    # print("NN with variance schedule")
+    # model.history_file = "nn_VarianceLearningRateScheduler_0.01_val.csv"
+    # model.fit(X_train, Y_train)
+
+    model.schedule = None
+    model.extra_callback = helpers.neural.VarianceLearningRateScheduler(0.01, monitor="loss", scale=1.1)
+    print("NN with variance schedule")
+    model.history_file = "nn_VarianceLearningRateScheduler_0.01_val_1.5_window2.csv"
+    model.fit(X_train, Y_train)
+
+    sys.exit(0)
+
+
 def main():
     args = parse_args()
 
@@ -480,6 +525,8 @@ def main():
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(X_train, Y_train, baseline_model, splits)
 
+    experiment_learning_rate_schedule(X_train, Y_train, splits)
+
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, splits)
 
@@ -498,7 +545,7 @@ def main():
 def make_scaler():
     pipe = []
     pipe.append(("scaler", helpers.sk.ClippedRobustScaler()))
-    pipe.append(("pca", sklearn.decomposition.PCA(n_components=0.993, whiten=True)))
+    # pipe.append(("pca", sklearn.decomposition.PCA(n_components=0.993, whiten=True)))
 
     preprocessing_pipeline = sklearn.pipeline.Pipeline(pipe)
     return preprocessing_pipeline
@@ -632,7 +679,7 @@ def verify_splits(X, Y, splits):
         print("\tY[train].mean: ", Y[train].mean(axis=0))
         print("\tY[train].std: ", Y[train].std(axis=0).mean())
 
-
+@helpers.general.Timed
 def cross_validate(X_train, Y_train, model, splits, n_jobs=1):
     scores = sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits, n_jobs=n_jobs)
     print("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))

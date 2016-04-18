@@ -20,22 +20,27 @@ import helpers.general
 
 _he_activations = {"relu"}
 
+
 def set_theano_float_precision(precision):
+    assert precision in {"float32", "float64"}
     theano.config.floatX = precision
+
 
 def disable_theano_gc():
     theano.config.allow_gc = False
+
 
 def enable_openmp():
     print("Current OpenMP value:", theano.config.openmp)
     theano.config.openmp = True
     os.environ["OMP_NUM_THREADS"] = "2"
 
+
 class NnRegressor(sklearn.base.BaseEstimator):
     """Wrapper for Keras feed-forward neural network for regression to enable scikit-learn grid search"""
 
     def __init__(self, hidden_layer_sizes=(100,), hidden_units=None, dropout=None, batch_size=-1, loss="mse", num_epochs=500, activation="relu", input_noise=0., learning_rate=0.001, verbose=0, init=None, l2=None, batch_norm=False, early_stopping=False, clip_gradient_norm=None, assert_finite=True,
-                 maxnorm=False, val=0., history_file=None, optimizer="adam"):
+                 maxnorm=False, val=0., history_file=None, optimizer="adam", schedule=None):
         self.clip_gradient_norm = clip_gradient_norm
         self.assert_finite = assert_finite
         if hidden_units:
@@ -58,6 +63,8 @@ class NnRegressor(sklearn.base.BaseEstimator):
         self.val = val
         self.history_file = history_file
         self.optimizer = optimizer
+        self.schedule = schedule
+        self.extra_callback = None
 
         self.logger = helpers.general.get_class_logger(self)
 
@@ -122,7 +129,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
 
         self._save_history(history)
 
-        self.logger.info("Training {:,} rows/sec".format(int(X.shape[0] * len(history.epoch) / t)))
+        self.logger.info("Trained at {:,} rows/sec in {:,} epochs".format(int(X.shape[0] * len(history.epoch) / t), len(history.epoch)))
         self.logger.debug("Model has {:,} params".format(self.count_params()))
 
     def _get_dense_layer_kwargs(self):
@@ -148,6 +155,12 @@ class NnRegressor(sklearn.base.BaseEstimator):
             monitor = "val_loss" if self.val > 0 else "loss"
             es = keras.callbacks.EarlyStopping(monitor=monitor, patience=self.num_epochs / 20, verbose=self.verbose, mode="min")
             kwargs["callbacks"].append(es)
+
+        if self.schedule:
+            kwargs["callbacks"].append(keras.callbacks.LearningRateScheduler(self.schedule))
+
+        if self.extra_callback:
+            kwargs["callbacks"].append(self.extra_callback)
 
         if self.val > 0:
             kwargs["validation_split"] = self.val
@@ -273,7 +286,61 @@ class RnnRegressor(NnRegressor):
 
 
 def make_learning_rate_schedule(initial_value, exponential_decay=1., kick_every=10000):
+    logger = helpers.general.get_function_logger()
+
     def schedule(epoch_num):
-        return initial_value * int(epoch_num / kick_every + 1) * exponential_decay ** epoch_num
+        lr = initial_value * (10 ** int(epoch_num / kick_every)) * exponential_decay ** epoch_num
+        logger.info("Setting learning rate at {} to {}".format(epoch_num, lr))
+        return lr
 
     return schedule
+
+import keras.backend
+
+
+class VarianceLearningRateScheduler(keras.callbacks.Callback):
+    def __init__(self, initial_lr=0.01, monitor="val_loss", scale=2):
+        super(VarianceLearningRateScheduler, self).__init__()
+        self.monitor = monitor
+        self.initial_lr = initial_lr
+        self.scale = float(scale)
+
+        self.metric_ = []
+        self.logger_ = helpers.general.get_class_logger(self)
+
+    def on_epoch_begin(self, epoch, logs={}):
+        assert hasattr(self.model.optimizer, 'lr'), 'Optimizer must have a "lr" attribute.'
+
+        lr = self._get_learning_rate()
+
+        if lr:
+            self.logger_.info("Setting learning rate at %d to %e", epoch, lr)
+            keras.backend.set_value(self.model.optimizer.lr, lr)
+
+    def on_epoch_end(self, epoch, logs={}):
+        metric = logs[self.monitor]
+        self.metric_.append(metric)
+
+    def _get_learning_rate(self):
+        window = 3
+        if len(self.metric_) < window * 2:
+            return self.initial_lr
+
+        data = numpy.asarray(self.metric_)
+
+        baseline = data[:-window].min()
+        diffs = baseline - data[-window:]
+
+        # assume error, lower is better
+        percent_epochs_improved = (diffs > 0).mean()
+        self.logger_.info("Ratio of good epochs: %.2f", percent_epochs_improved)
+
+        if percent_epochs_improved > 0.75:
+            return self._scale_learning_rate(self.scale)
+        elif percent_epochs_improved < 0.5:
+            return self._scale_learning_rate(1. / self.scale)
+
+        return None
+
+    def _scale_learning_rate(self, scale):
+        return keras.backend.get_value(self.model.optimizer.lr) * scale
