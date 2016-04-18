@@ -35,7 +35,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
     """Wrapper for Keras feed-forward neural network for regression to enable scikit-learn grid search"""
 
     def __init__(self, hidden_layer_sizes=(100,), hidden_units=None, dropout=None, batch_size=-1, loss="mse", num_epochs=500, activation="relu", input_noise=0., learning_rate=0.001, verbose=0, init=None, l2=None, batch_norm=False, early_stopping=False, clip_gradient_norm=None, assert_finite=True,
-                 maxnorm=False, val=0., history_file=None, theano_precision=None, optimizer="adam"):
+                 maxnorm=False, val=0., history_file=None, optimizer="adam"):
         self.clip_gradient_norm = clip_gradient_norm
         self.assert_finite = assert_finite
         if hidden_units:
@@ -57,7 +57,6 @@ class NnRegressor(sklearn.base.BaseEstimator):
         self.use_maxnorm = maxnorm
         self.val = val
         self.history_file = history_file
-        self.theano_precision = theano_precision
         self.optimizer = optimizer
 
         self.logger = helpers.general.get_class_logger(self)
