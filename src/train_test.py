@@ -35,6 +35,8 @@ from helpers.sk import MultivariateRegressionWrapper, print_feature_importances,
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--debug", default=False, action="store_true", help="Debug logging")
+
+    parser.add_argument("--float32", default=False, action="store_true", help="Use 32-bit float instead of default 64-bit, may be faster")
     parser.add_argument("--feature-pairs", default=False, action="store_true", help="Try out pairs of features")
     parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
     parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
@@ -290,37 +292,28 @@ def compute_upper_bounds(data):
 
 def make_nn(history_file=None):
     """Make a neural network model with reasonable default args"""
-    # feature_selector = sklearn.feature_selection.VarianceThreshold(.9 * .1)
-    fs = sklearn.feature_selection.SelectFromModel(sklearn.linear_model.LinearRegression(), threshold="0.05*mean", prefit=False)
-
-    # fs = sklearn.feature_selection.RFE(LinearRegression(), n_features_to_select=50)
-
-    # pca = sklearn.decomposition.PCA(n_components=0.99, whiten=True)
 
     model = helpers.neural.NnRegressor(num_epochs=500,
                                        batch_size=64,
                                        learning_rate=0.001,
                                        dropout=0.5,
-                                       activation="tanh",
+                                       activation="elu",
                                        input_noise=0.1,
+                                       input_dropout=0.02,
                                        hidden_units=200,
                                        early_stopping=True,
-                                       # val=0.1,
+                                       val=0.1,
                                        loss="mse",
                                        l2=0.0001,
                                        maxnorm=True,
                                        history_file=history_file,
+                                       schedule=helpers.neural.make_learning_rate_schedule(1e-3, exponential_decay=0.99),
                                        assert_finite=False)
-    model.schedule = helpers.neural.make_learning_rate_schedule(model.learning_rate, exponential_decay=0.99)
-
-    # return sklearn.pipeline.Pipeline([("pca", pca), ("nn", model)])
 
     return model
 
 @helpers.general.Timed
 def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False):
-    Y_train = Y_train.values
-
     model = make_nn()
     cross_validate(X_train, Y_train, model, splits)
 
@@ -331,14 +324,15 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
             # "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
             # "dropout": [0.4, 0.5, 0.6],
             "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-1, 1e-4),
-            "optimizer": ["adam", "rmsprop", "adamax"]
-            # "activation": ["sigmoid", "tanh", "elu"],
+            "input_dropout": [0, 0.02, 0.05, 0.1],
+            # "optimizer": ["adam", "rmsprop", "adamax"]
+            "activation": ["sigmoid", "tanh", "elu"],
             # "hidden_layer_sizes": [(100,), (200,), (100, 100)],
             # "loss": ["mse", "mae"]
         }
         model = make_nn()
         model.history_file = None
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=30, scoring=rms_error)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=30, scoring=rms_error, refit=False)
         # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
 
         wrapped_model.fit(X_train, Y_train)
@@ -364,25 +358,27 @@ def make_rnn(history_file=None):
 
 @helpers.general.Timed
 def experiment_rnn(X_train, Y_train, args, splits, tune_params=False):
-    Y_train = Y_train.values
-
     model = make_rnn()
     cross_validate(X_train, Y_train, model, splits)
+
 
     if args.analyse_hyperparameters and tune_params:
         hyperparams = {
             # "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
             # "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
             # "recurrent_dropout": [0.3, 0.4, 0.5, 0.6, 0.7],
-            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 1e-4),
-            "time_steps": [3, 50],
+            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(5e-2, 1e-3),
+            # "time_steps": [3, 4, 5],
+            # "input_dropout": [0, 0.02, 0.05],
+            # "activation": ["tanh", "relu"]
             # "val": [0.1]
             # "batch_size": [1, 2, 4, 8, 16, 32, 64]
-            "optimizer": ["adam", "rmsprop", "adamax"]
+            # "optimizer": ["adam", "rmsprop", "adamax"]
+            # "posttrain": [True, False]
         }
-        model.verbose = 0
+        # model.verbose = 1
         model.history_file = None
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=5, n_jobs=1, scoring=rms_error, refit=False)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error, refit=False)
 
         wrapped_model.fit(X_train, Y_train)
         wrapped_model.print_tuning_scores()
@@ -465,8 +461,6 @@ def verify_data(train_df, test_df, filename):
 
 
 def experiment_learning_rate_schedule(X_train, Y_train, splits):
-    Y_train = Y_train.values
-
     model = make_nn()
     model.val = 0.1
 
@@ -522,6 +516,12 @@ def main():
     feature_names = X_train.columns
     X_train = scaler.fit_transform(X_train)
 
+    Y_train = Y_train.values
+    if args.float32:
+        helpers.neural.set_theano_float_precision("float32")
+        X_train = X_train.astype(numpy.float32)
+        Y_train = Y_train.astype(numpy.float32)
+
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(X_train, Y_train, baseline_model, splits)
 
@@ -530,16 +530,13 @@ def main():
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, splits)
 
-    # just in case it helps
-    helpers.neural.set_theano_float_precision("float32")
-
     experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
 
     experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
     experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
-    experiment_rnn(X_train, Y_train, args, splits, tune_params=False)
+    experiment_rnn(X_train, Y_train, args, splits, tune_params=True)
 
 
 def make_scaler():
@@ -558,8 +555,6 @@ def make_blr(**kwargs):
 
 @helpers.general.Timed
 def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False):
-    Y_train = Y_train.values
-
     model = make_blr()
     cross_validate(X_train, Y_train, model, splits)
 
@@ -579,8 +574,6 @@ def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_par
 
 @helpers.general.Timed
 def experiment_output_transform(X_train, Y_train, args, splits):
-    Y_train = Y_train.values
-
     base_model = make_rf()
     cross_validate(X_train, Y_train, base_model, splits)
 

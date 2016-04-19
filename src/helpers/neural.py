@@ -40,8 +40,10 @@ def enable_openmp():
 class NnRegressor(sklearn.base.BaseEstimator):
     """Wrapper for Keras feed-forward neural network for regression to enable scikit-learn grid search"""
 
-    def __init__(self, hidden_layer_sizes=(100,), hidden_units=None, dropout=None, batch_size=-1, loss="mse", num_epochs=500, activation="relu", input_noise=0., learning_rate=0.001, verbose=0, init=None, l2=None, batch_norm=False, early_stopping=False, clip_gradient_norm=None, assert_finite=True,
-                 maxnorm=False, val=0., history_file=None, optimizer="adam", schedule=None):
+    def __init__(self, hidden_layer_sizes=(100,), hidden_units=None, dropout=None, batch_size=-1, loss="mse",
+                 num_epochs=500, activation="relu", input_noise=0., learning_rate=0.001, verbose=0, init=None, l2=None,
+                 batch_norm=False, early_stopping=False, clip_gradient_norm=None, assert_finite=True,
+                 maxnorm=False, val=0., history_file=None, optimizer="adam", input_dropout=None, schedule=None):
         self.clip_gradient_norm = clip_gradient_norm
         self.assert_finite = assert_finite
         if hidden_units:
@@ -53,6 +55,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
         self.num_epochs = num_epochs
         self.activation = activation
         self.input_noise = input_noise
+        self.input_dropout = input_dropout
         self.learning_rate = learning_rate
         self.verbose = verbose
         self.loss = loss
@@ -101,6 +104,9 @@ class NnRegressor(sklearn.base.BaseEstimator):
         # set the input shape on (though it may be set to zero noise)
         model.add(keras.layers.noise.GaussianNoise(self.input_noise, input_shape=X.shape[1:]))
 
+        if self.input_dropout:
+            model.add(keras.layers.core.Dropout(self.input_dropout))
+
         dense_kwargs = self._get_dense_layer_kwargs()
 
         # hidden layers
@@ -131,7 +137,8 @@ class NnRegressor(sklearn.base.BaseEstimator):
 
         self._save_history(history)
 
-        self.logger.info("Trained at {:,} rows/sec in {:,} epochs".format(int(X.shape[0] * len(history.epoch) / t), len(history.epoch)))
+        self.logger.info("Trained at {:,} rows/sec in {:,} epochs".format(int(X.shape[0] * len(history.epoch) / t),
+                                                                          len(history.epoch)))
         self.logger.debug("Model has {:,} params".format(self.count_params()))
 
     def _get_dense_layer_kwargs(self):
@@ -146,7 +153,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
 
         return dense_kwargs
 
-    def _get_fit_kwargs(self, X, batch_size_override=None, num_epochs_override=None):
+    def _get_fit_kwargs(self, X, batch_size_override=None, num_epochs_override=None, disable_validation=False):
         """Apply settings to the fit function keyword args"""
         kwargs = {"verbose": self.verbose, "nb_epoch": self.num_epochs, "callbacks": []}
 
@@ -155,7 +162,8 @@ class NnRegressor(sklearn.base.BaseEstimator):
 
         if self.early_stopping:
             monitor = "val_loss" if self.val > 0 else "loss"
-            es = keras.callbacks.EarlyStopping(monitor=monitor, patience=self.num_epochs / 20, verbose=self.verbose, mode="min")
+            es = keras.callbacks.EarlyStopping(monitor=monitor, patience=self.num_epochs / 20, verbose=self.verbose,
+                                               mode="min")
             kwargs["callbacks"].append(es)
 
         if self.schedule:
@@ -164,7 +172,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
         if self.extra_callback:
             kwargs["callbacks"].append(self.extra_callback)
 
-        if self.val > 0:
+        if self.val > 0 and not disable_validation:
             kwargs["validation_split"] = self.val
 
         kwargs["batch_size"] = self.batch_size
@@ -218,12 +226,18 @@ class NnRegressor(sklearn.base.BaseEstimator):
         self.history_df_.to_csv(self.history_file)
 
 
-
 class RnnRegressor(NnRegressor):
     def __init__(self, num_units=50, time_steps=5, batch_size=100, num_epochs=100, unit="lstm", verbose=0,
-                 early_stopping=False, dropout=None, recurrent_dropout=None, loss="mse", input_noise=0., learning_rate=0.001, clip_gradient_norm=None, val=0, assert_finite=True, history_file=None,
-                 pretrain=True, optimizer="adam"):
-        super(RnnRegressor, self).__init__(batch_size=batch_size, num_epochs=num_epochs, verbose=verbose, early_stopping=early_stopping, dropout=dropout, loss=loss, input_noise=input_noise, learning_rate=learning_rate, clip_gradient_norm=clip_gradient_norm, val=val, assert_finite=assert_finite, history_file=history_file, optimizer=optimizer)
+                 early_stopping=False, dropout=None, recurrent_dropout=None, loss="mse", input_noise=0.,
+                 learning_rate=0.001, clip_gradient_norm=None, val=0, assert_finite=True, history_file=None,
+                 pretrain=True, optimizer="adam", input_dropout=None, activation=None, posttrain=False):
+        super(RnnRegressor, self).__init__(batch_size=batch_size, num_epochs=num_epochs, verbose=verbose,
+                                           early_stopping=early_stopping, dropout=dropout, loss=loss,
+                                           input_noise=input_noise, learning_rate=learning_rate,
+                                           clip_gradient_norm=clip_gradient_norm, val=val, assert_finite=assert_finite,
+                                           history_file=history_file, optimizer=optimizer, input_dropout=input_dropout, activation=activation)
+
+        self.posttrain = posttrain
         self.num_units = num_units
         self.time_steps = time_steps
         self.unit = unit
@@ -239,6 +253,9 @@ class RnnRegressor(NnRegressor):
     def _get_recurrent_layer_kwargs(self):
         """Apply settings to dense layer keyword args"""
         kwargs = {"output_dim": self.num_units}
+
+        if self.activation:
+            kwargs["activation"] = self.activation
 
         if self.recurrent_dropout:
             kwargs["dropout_U"] = self.recurrent_dropout
@@ -256,6 +273,9 @@ class RnnRegressor(NnRegressor):
         self.logger.debug("X_time takes %d mb", X_time.nbytes / 10e6)
 
         model.add(keras.layers.noise.GaussianNoise(self.input_noise, input_shape=X_time.shape[1:]))
+
+        if self.input_dropout:
+            model.add(keras.layers.core.Dropout(self.input_dropout))
 
         # hidden layer
         if self.unit == "lstm":
@@ -281,6 +301,9 @@ class RnnRegressor(NnRegressor):
 
         self._run_fit(X_time, Y)
 
+        if self.posttrain:
+            self.model_.fit(X_time, Y, **self._get_fit_kwargs(X, disable_validation=True, num_epochs_override=5))
+
         return self
 
     def predict(self, X):
@@ -305,6 +328,7 @@ def sigmoid(x):
 
 class AdaptiveLearningRateScheduler(keras.callbacks.Callback):
     """Learning rate scheduler that increases or decreases LR based on a recent sample of validation results"""
+
     def __init__(self, initial_learning_rate, monitor="val_loss", scale=2., window=5):
         super(AdaptiveLearningRateScheduler, self).__init__()
         self.monitor = monitor
