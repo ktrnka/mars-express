@@ -309,8 +309,8 @@ def make_nn():
                                        loss="mse",
                                        l2=0.0001,
                                        maxnorm=True,
-                                       history_file="nn_training.csv",
                                        assert_finite=False)
+    model.schedule = helpers.neural.make_learning_rate_schedule(model.learning_rate, exponential_decay=0.99)
 
     # return sklearn.pipeline.Pipeline([("pca", pca), ("nn", model)])
 
@@ -343,11 +343,28 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
         wrapped_model.fit(X_train, Y_train)
         wrapped_model.print_tuning_scores()
 
+
+def make_rnn():
+    return helpers.neural.RnnRegressor(learning_rate=2e-3,
+                                       num_units=50,
+                                       time_steps=3,
+                                       batch_size=64,
+                                       num_epochs=500,
+                                       verbose=0,
+                                       input_noise=0.1,
+                                       early_stopping=True,
+                                       recurrent_dropout=0.5,
+                                       dropout=0.5,
+                                       val=0.1,
+                                       assert_finite=False,
+                                       pretrain=True)
+
+
 @helpers.general.Timed
 def experiment_rnn(X_train, Y_train, args, splits, tune_params=False):
     Y_train = Y_train.values
 
-    model = helpers.neural.RnnRegressor(learning_rate=2e-3, num_units=50, time_steps=3, batch_size=64, num_epochs=500, verbose=0, input_noise=0.1, early_stopping=True, recurrent_dropout=0.5, dropout=0.5, val=0.1, history_file="rnn_training.csv", assert_finite=False, pretrain=True)
+    model = make_rnn()
     cross_validate(X_train, Y_train, model, splits)
 
     if args.analyse_hyperparameters and tune_params:
@@ -450,35 +467,22 @@ def experiment_learning_rate_schedule(X_train, Y_train, splits):
 
     model = make_nn()
     model.val = 0.1
-    model.early_stopping = True
 
     # base = no schedule
-    print("Baseline NN 0.001")
-    model.history_file = "nn_0.001.csv"
-    model.fit(X_train, Y_train)
-
-    # Without early stopping and no schedule this diverges
-    # print("Baseline NN 0.01")
-    # model.history_file = "nn_no_schedule_0.01.csv"
-    # model.learning_rate = 0.01
-    # model.fit(X_train, Y_train)
-
-    # higher init, decay set to reach the same at 40 epochs
-    model.schedule = helpers.neural.make_learning_rate_schedule(0.01, exponential_decay=0.94406087628)
-    print("NN with {}".format(model.schedule))
-    model.history_file = "nn_schedule_0.01_decay.csv"
+    print("Baseline NN")
+    model.history_file = "nn_default.csv"
     model.fit(X_train, Y_train)
 
     # higher init, decay set to reach the same at 40 epochs
-    # model.schedule = helpers.neural.make_learning_rate_schedule(0.01, exponential_decay=0.94406087628, kick_every=50)
-    # print("NN with {}".format(model.schedule))
-    # model.history_file = "nn_schedule_0.01_decay_kick.csv"
-    # model.fit(X_train, Y_train)
+    model.schedule = helpers.neural.make_learning_rate_schedule(model.learning_rate, exponential_decay=0.94406087628)
+    print("NN with decay")
+    model.history_file = "nn_decay.csv"
+    model.fit(X_train, Y_train)
 
     model.schedule = None
-    model.extra_callback = helpers.neural.VarianceLearningRateScheduler(0.01, monitor="val_loss", scale=1.1)
+    model.extra_callback = helpers.neural.AdaptiveLearningRateScheduler(model.learning_rate, monitor="val_loss", scale=1.1, window=5)
     print("NN with variance schedule")
-    model.history_file = "nn_variance_schedule_0.01.csv"
+    model.history_file = "nn_variance_schedule.csv"
     model.fit(X_train, Y_train)
 
     sys.exit(0)
@@ -519,7 +523,7 @@ def main():
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(X_train, Y_train, baseline_model, splits)
 
-    experiment_learning_rate_schedule(X_train, Y_train, splits)
+    # experiment_learning_rate_schedule(X_train, Y_train, splits)
 
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, splits)
@@ -531,9 +535,9 @@ def main():
 
     experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
-    experiment_rnn(X_train, Y_train, args, splits, tune_params=True)
-
     experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
+
+    experiment_rnn(X_train, Y_train, args, splits, tune_params=False)
 
 
 def make_scaler():

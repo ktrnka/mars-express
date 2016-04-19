@@ -9,6 +9,7 @@ import keras.layers.recurrent
 import keras.models
 import keras.optimizers
 import keras.regularizers
+import keras.backend
 import numpy
 import pandas
 import sklearn
@@ -285,28 +286,29 @@ class RnnRegressor(NnRegressor):
         return r
 
 
-def make_learning_rate_schedule(initial_value, exponential_decay=1., kick_every=10000):
+def make_learning_rate_schedule(initial_value, exponential_decay=0.99, kick_every=10000):
     logger = helpers.general.get_function_logger()
 
     def schedule(epoch_num):
         lr = initial_value * (10 ** int(epoch_num / kick_every)) * exponential_decay ** epoch_num
-        logger.info("Setting learning rate at {} to {}".format(epoch_num, lr))
+        logger.debug("Setting learning rate at {} to {}".format(epoch_num, lr))
         return lr
 
     return schedule
-
-import keras.backend
 
 
 def sigmoid(x):
     return 1 / (1 + numpy.exp(-x))
 
-class VarianceLearningRateScheduler(keras.callbacks.Callback):
-    def __init__(self, initial_lr=0.01, monitor="val_loss", scale=2):
-        super(VarianceLearningRateScheduler, self).__init__()
+
+class AdaptiveLearningRateScheduler(keras.callbacks.Callback):
+    """Learning rate scheduler that increases or decreases LR based on a recent sample of validation results"""
+    def __init__(self, initial_learning_rate, monitor="val_loss", scale=2., window=5):
+        super(AdaptiveLearningRateScheduler, self).__init__()
         self.monitor = monitor
-        self.initial_lr = initial_lr
+        self.initial_lr = initial_learning_rate
         self.scale = float(scale)
+        self.window = window
 
         self.metric_ = []
         self.logger_ = helpers.general.get_class_logger(self)
@@ -317,7 +319,7 @@ class VarianceLearningRateScheduler(keras.callbacks.Callback):
         lr = self._get_learning_rate()
 
         if lr:
-            self.logger_.info("Setting learning rate at %d to %e", epoch, lr)
+            self.logger_.debug("Setting learning rate at %d to %e", epoch, lr)
             keras.backend.set_value(self.model.optimizer.lr, lr)
 
     def on_epoch_end(self, epoch, logs={}):
@@ -325,18 +327,17 @@ class VarianceLearningRateScheduler(keras.callbacks.Callback):
         self.metric_.append(metric)
 
     def _get_learning_rate(self):
-        window = 3
-        if len(self.metric_) < window * 2:
+        if len(self.metric_) < self.window * 2:
             return self.initial_lr
 
         data = numpy.asarray(self.metric_)
 
-        baseline = data[:-window].min()
-        diffs = baseline - data[-window:]
+        baseline = data[:-self.window].min()
+        diffs = baseline - data[-self.window:]
 
         # assume error, lower is better
         percent_epochs_improved = sigmoid((diffs / baseline) / 0.02).mean()
-        self.logger_.info("Ratio of good epochs: %.2f", percent_epochs_improved)
+        self.logger_.debug("Ratio of good epochs: %.2f", percent_epochs_improved)
 
         if percent_epochs_improved > 0.75:
             return self._scale_learning_rate(self.scale)

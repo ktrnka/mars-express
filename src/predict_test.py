@@ -19,6 +19,8 @@ def parse_args():
 def get_model(model_name):
     model_name = model_name.lower()
 
+    # TODO: support RNN, add learning curve filename to NN and RNN for visual inspection
+
     if model_name == "nn":
         return make_nn()
     elif model_name == "blr":
