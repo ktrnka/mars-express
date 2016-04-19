@@ -7,6 +7,7 @@ import sys
 import collections
 import numpy
 
+
 def get_mkl_version():
     try:
         import mkl
@@ -31,9 +32,10 @@ def benchmark_size(n, base_iterations=100, min_seconds_test=2., dtype="numpy.flo
         results[f]["unit_time"] = time / n_iter
         results[f]["n_iter"] = n_iter
 
-        print(f, n, 1000. * time / n_iter, n_iter)
+        # print(f, n, 1000. * time / n_iter, n_iter)
 
     return results
+
 
 print("Computer:", " | ".join(platform.uname()))
 print("Interpreter:", sys.version)
