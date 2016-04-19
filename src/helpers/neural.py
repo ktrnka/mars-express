@@ -70,6 +70,7 @@ class NnRegressor(sklearn.base.BaseEstimator):
         self.logger = helpers.general.get_class_logger(self)
 
         self.model_ = None
+        self.history_df_ = None
 
     def _get_optimizer(self):
         if self.optimizer == "adam":
@@ -212,9 +213,10 @@ class NnRegressor(sklearn.base.BaseEstimator):
         if not self.history_file:
             return
 
-        dataframe = pandas.DataFrame.from_dict(history.history)
-        dataframe.index.rename("epoch", inplace=True)
-        dataframe.to_csv(self.history_file)
+        self.history_df_ = pandas.DataFrame.from_dict(history.history)
+        self.history_df_.index.rename("epoch", inplace=True)
+        self.history_df_.to_csv(self.history_file)
+
 
 
 class RnnRegressor(NnRegressor):

@@ -288,7 +288,7 @@ def compute_upper_bounds(data):
         print("RMS with {} approximation: {:.3f}".format(interval, rms))
 
 
-def make_nn():
+def make_nn(history_file=None):
     """Make a neural network model with reasonable default args"""
     # feature_selector = sklearn.feature_selection.VarianceThreshold(.9 * .1)
     fs = sklearn.feature_selection.SelectFromModel(sklearn.linear_model.LinearRegression(), threshold="0.05*mean", prefit=False)
@@ -309,6 +309,7 @@ def make_nn():
                                        loss="mse",
                                        l2=0.0001,
                                        maxnorm=True,
+                                       history_file=history_file,
                                        assert_finite=False)
     model.schedule = helpers.neural.make_learning_rate_schedule(model.learning_rate, exponential_decay=0.99)
 
@@ -344,7 +345,7 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
         wrapped_model.print_tuning_scores()
 
 
-def make_rnn():
+def make_rnn(history_file=None):
     return helpers.neural.RnnRegressor(learning_rate=2e-3,
                                        num_units=50,
                                        time_steps=3,
@@ -357,7 +358,8 @@ def make_rnn():
                                        dropout=0.5,
                                        val=0.1,
                                        assert_finite=False,
-                                       pretrain=True)
+                                       pretrain=True,
+                                       history_file=history_file)
 
 
 @helpers.general.Timed

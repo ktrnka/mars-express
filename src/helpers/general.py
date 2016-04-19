@@ -11,7 +11,7 @@ import time
 import numpy
 
 import helpers.sk
-
+import re
 
 def number_string(number, singular_unit, plural_unit, format_string="{} {}"):
     return format_string.format(number, singular_unit if number == 1 else plural_unit)
@@ -67,9 +67,17 @@ def _with_extra(filename, extra_info):
 def with_num_features(filename, X):
     return _with_extra(filename, "{}_features".format(X.shape[1]))
 
+def camel_to_snake(name):
+    """From http://stackoverflow.com/a/1176023/1492373"""
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
-def with_model_name(filename, model):
-    return _with_extra(filename, helpers.sk.get_model_name(model, format="{}_{}"))
+
+def with_model_name(filename, model, snake_case=False):
+    model_name = helpers.sk.get_model_name(model, format="{}_{}")
+    if snake_case:
+        model_name = camel_to_snake(model_name)
+    return _with_extra(filename, model_name)
 
 
 def with_date(filename):
