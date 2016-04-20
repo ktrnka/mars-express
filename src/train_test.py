@@ -340,13 +340,14 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
 
 def make_rnn(history_file=None):
-    return helpers.neural.RnnRegressor(learning_rate=2e-3,
+    return helpers.neural.RnnRegressor(learning_rate=1e-3,
                                        num_units=50,
                                        time_steps=3,
                                        batch_size=64,
                                        num_epochs=500,
                                        verbose=0,
                                        input_noise=0.1,
+                                       input_dropout=0.02,
                                        early_stopping=True,
                                        recurrent_dropout=0.5,
                                        dropout=0.5,
@@ -367,18 +368,18 @@ def experiment_rnn(X_train, Y_train, args, splits, tune_params=False):
             # "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
             # "dropout": [0.4, 0.45, 0.5, 0.55, 0.6],
             # "recurrent_dropout": [0.3, 0.4, 0.5, 0.6, 0.7],
-            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(5e-2, 1e-3),
+            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 5e-4),
             # "time_steps": [3, 4, 5],
-            # "input_dropout": [0, 0.02, 0.05],
+            "input_dropout": [0, 0.02, 0.05],
             # "activation": ["tanh", "relu"]
             # "val": [0.1]
             # "batch_size": [1, 2, 4, 8, 16, 32, 64]
             # "optimizer": ["adam", "rmsprop", "adamax"]
-            # "posttrain": [True, False]
+            "posttrain": [True, False]
         }
         # model.verbose = 1
         model.history_file = None
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error, refit=False)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=15, n_jobs=1, scoring=rms_error, refit=False)
 
         wrapped_model.fit(X_train, Y_train)
         wrapped_model.print_tuning_scores()
@@ -484,6 +485,15 @@ def experiment_learning_rate_schedule(X_train, Y_train, splits):
     sys.exit(0)
 
 
+def experiment_output_augmentation(X_train, Y_train, splits):
+    model = make_nn()
+
+    cross_validate(X_train, Y_train, model, splits)
+    cross_validate(X_train, Y_train, helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean()), splits)
+
+    sys.exit(0)
+
+
 def main():
     args = parse_args()
 
@@ -526,6 +536,8 @@ def main():
     cross_validate(X_train, Y_train, baseline_model, splits)
 
     # experiment_learning_rate_schedule(X_train, Y_train, splits)
+
+    experiment_output_augmentation(X_train, Y_train, splits)
 
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, splits)
