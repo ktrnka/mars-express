@@ -605,10 +605,13 @@ def main():
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(X_train, Y_train, baseline_model, splits)
 
-    experiment_rnn_stateful(X_train, Y_train, splits)
+    # experiment_rnn_stateful(X_train, Y_train, splits)
 
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, splits)
+
+    cross_validate(X_train, Y_train, sklearn.linear_model.Lasso(0.01), splits)
+    cross_validate(X_train, Y_train, sklearn.linear_model.ElasticNet(0.01), splits)
 
     experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
 
@@ -752,7 +755,6 @@ def verify_splits(X, Y, splits):
         print("\tY[train].mean: ", Y[train].mean(axis=0))
         print("\tY[train].std: ", Y[train].std(axis=0).mean())
 
-@helpers.general.Timed
 def cross_validate(X_train, Y_train, model, splits, n_jobs=1):
     scores = sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits, n_jobs=n_jobs)
     print("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
