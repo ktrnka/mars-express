@@ -494,6 +494,76 @@ def experiment_output_augmentation(X_train, Y_train, splits):
     sys.exit(0)
 
 
+def experiment_rnn_elu(X_train, Y_train, splits):
+    model = make_rnn()
+
+    # print("RNN with ELU no second dropout")
+    # model.hidden_layer_sizes = (75,)
+    # model.activation = "elu"
+    # cross_validate(X_train, Y_train, model, splits)
+
+    model = helpers.neural.RnnRegressor(learning_rate=1e-3,
+                                        num_units=50,
+                                        time_steps=3,
+                                        batch_size=64,
+                                        num_epochs=500,
+                                        verbose=0,
+                                        input_noise=0.1,
+                                        input_dropout=0.02,
+                                        early_stopping=True,
+                                        recurrent_dropout=0.5,
+                                        dropout=0.5,
+                                        val=0.1,
+                                        assert_finite=False,
+                                        activation="elu",
+                                        pretrain=True)
+
+    print("RNN with followup ELU layer")
+    hyperparams = {
+        "hidden_layer_sizes": [(50,), (75,), (100,), (200,)],
+        "dropout": [0.25, 0.5, .75]
+    }
+
+    wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error, refit=False)
+
+    wrapped_model.fit(X_train, Y_train)
+    wrapped_model.print_tuning_scores()
+
+    sys.exit(0)
+
+
+def experiment_rnn_longer(X_train, Y_train, splits):
+    model = make_rnn()
+
+    time = 10
+    print("RNN time ", time)
+    model.time_steps = time
+    model.num_epochs = 1000
+    cross_validate(X_train, Y_train, model, splits)
+
+    sys.exit(0)
+
+
+def experiment_rnn_stateful(X_train, Y_train, splits):
+    model = make_rnn()
+    model.batch_size = 4
+    model.time_steps = 4
+    model.val = 0
+    # model.verbose = 1
+    model.pretrain = False
+    model.early_stopping = False
+    model.num_epochs = 300
+
+    print("RNN baseline")
+    cross_validate(X_train, Y_train, model, splits)
+
+    print("RNN stateful")
+    model.stateful = True
+    cross_validate(X_train, Y_train, model, splits)
+
+    sys.exit(0)
+
+
 def main():
     args = parse_args()
 
@@ -535,9 +605,7 @@ def main():
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(X_train, Y_train, baseline_model, splits)
 
-    # experiment_learning_rate_schedule(X_train, Y_train, splits)
-
-    experiment_output_augmentation(X_train, Y_train, splits)
+    experiment_rnn_stateful(X_train, Y_train, splits)
 
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, splits)
