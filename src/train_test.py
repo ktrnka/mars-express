@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 from operator import itemgetter
+from pprint import pprint
 
 import numpy
 import pandas
@@ -72,7 +73,7 @@ def get_evtf_ranges(event_data, event_prefix):
 
 def get_dmop_subsystem(dmop_data):
     """Extract the subsystem from each record of the dmop data"""
-    dmop_subsys = dmop_data.subsystem.str.extract(r"A(?P<subsystem>\w{3}).*", expand=False)
+    dmop_subsys = dmop_data.subsystem.str.extract(r"A(?P<subsystem>\w{3}.*)", expand=False)
     dmop_subsys_mapo = dmop_data.subsystem.str.extract(r"(?P<subsystem>.+)\..+", expand=False)
 
     dmop_subsys.fillna(dmop_subsys_mapo, inplace=True)
@@ -140,6 +141,8 @@ def load_series(files, add_file_number=False, resample_interval=None, date_cols=
 
     return data
 
+
+# noinspection PyPackageRequirements
 @helpers.general.Timed
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
     logger = helpers.general.get_function_logger()
@@ -197,11 +200,13 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
 
-    # dmop_subsystems = get_dmop_subsystem(dmop_data)
-    # for subsys, hours in [("TTT", 1), ("PENS", 1), ("PENE", 1), ("AAA", 1), ("OOO", 1), ("ACF", 1), ("SSS", 1)]:
-    #     dest_name = "DMOP_{}_under_{}h_ago".format(subsys, hours)
-    #     event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_dmop_ranges(dmop_subsystems, subsys, hours))
-    #     add_lag_feature(event_sampled_df, dest_name, 12, "1h", drop=True)
+    dmop_subsystems = get_dmop_subsystem(dmop_data)
+    # These three were the only ones that had nonzero weights in elastic net when I tried with all over 1000 count
+    for subsys in "MMMF10A0 MMMF01A0 ACFE03A".split():
+        hours = 0.5
+        dest_name = "DMOP_{}_under_{}h_ago".format(subsys, hours)
+        event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_dmop_ranges(dmop_subsystems, subsys, hours))
+        add_lag_feature(event_sampled_df, dest_name, 12, "1h", drop=True)
 
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
@@ -614,8 +619,7 @@ def main():
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, splits)
 
-    cross_validate(X_train, Y_train, sklearn.linear_model.Lasso(0.01), splits)
-    cross_validate(X_train, Y_train, sklearn.linear_model.ElasticNet(0.01), splits)
+    experiment_elastic_net(X_train, Y_train, feature_names, splits)
 
     experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
 
@@ -624,6 +628,20 @@ def main():
     experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
     experiment_rnn(X_train, Y_train, args, splits, tune_params=True)
+
+
+def experiment_elastic_net(X_train, Y_train, feature_names, splits, feature_importance=True):
+    model = sklearn.linear_model.ElasticNet(0.01)
+    cross_validate(X_train, Y_train, model, splits)
+
+    if feature_importance:
+        model.fit(X_train, Y_train)
+
+        feature_importances = collections.Counter()
+        for fname, fweight in zip(feature_names, helpers.sk.get_lr_importances(model)):
+            feature_importances[fname] = fweight
+        print("Feature potentials from ElasticNet (max of abs per-output coefs)")
+        pprint(feature_importances.most_common())
 
 
 def make_scaler():

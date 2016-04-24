@@ -59,11 +59,15 @@ def rate_columns(data):
 
 
 def save_history(model, output_file):
-    # try:
-    axes = model.history_df_.plot(figsize=(16, 9), logy=True)
-    axes.get_figure().savefig(with_model_name(output_file, model, snake_case=True), dpi=300)
-    # except AttributeError:
-    #     print("Not saving model learning curve graph cause it doesn't exist")
+    try:
+        axes = model.history_df_.plot(figsize=(16, 9), logy=True)
+        axes.get_figure().savefig(with_model_name(output_file, model, snake_case=True), dpi=300)
+    except AttributeError:
+        try:
+            axes = model.estimator.history_df_.plot(figsize=(16, 9), logy=True)
+            axes.get_figure().savefig(with_model_name(output_file, model, snake_case=True), dpi=300)
+        except AttributeError:
+            print("Not saving model learning curve graph cause it doesn't exist")
 
 
 def predict_test_data(X_train, Y_train, scaler, args):
