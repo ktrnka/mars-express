@@ -219,6 +219,10 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     saaf_data = load_series(find_files(data_dir, "saaf"))
     saaf_data = saaf_data.resample("1H").mean().reindex(data.index, method="nearest").interpolate()
 
+    # best 2 from EN
+    for num_days in [1, 8]:
+        saaf_data["SAAF_sy_stddev_{}d".format(num_days)] = saaf_data["sy"].rolling(num_days * 24).std().fillna(method="bfill")
+
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
     data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest")], axis=1)
@@ -299,8 +303,8 @@ def make_nn(history_file=None):
     """Make a neural network model with reasonable default args"""
 
     model = helpers.neural.NnRegressor(num_epochs=500,
-                                       batch_size=64,
-                                       learning_rate=0.001,
+                                       batch_size=256,
+                                       learning_rate=0.004,
                                        dropout=0.5,
                                        activation="elu",
                                        input_noise=0.1,
@@ -345,11 +349,11 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
 
 def make_rnn(history_file=None):
-    model = helpers.neural.RnnRegressor(learning_rate=1e-3,
+    model = helpers.neural.RnnRegressor(learning_rate=4e-3,
                                         num_units=50,
-                                        time_steps=8,
-                                        batch_size=64,
-                                        num_epochs=500,
+                                        time_steps=4,
+                                        batch_size=256,
+                                        num_epochs=1000,
                                         verbose=0,
                                         input_noise=0.1,
                                         input_dropout=0.02,
@@ -361,7 +365,7 @@ def make_rnn(history_file=None):
                                         pretrain=True,
                                         history_file=history_file)
 
-    model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
+    # model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
 
     return model
 
@@ -585,7 +589,7 @@ def main():
 
     # cross validation by year
     # splits = helpers.sk.TimeCV(train_data.shape[0], 10, min_training=0.4, test_splits=3)
-    # splits = sklearn.cross_validation.KFold(train_data.shape[0], 5, shuffle=True)
+    # splits = sklearn.cross_validation.KFold(train_data.shape[0], 7, shuffle=False)
     splits = sklearn.cross_validation.LeaveOneLabelOut(train_data["file_number"])
 
     # just use the biggest one for now
@@ -614,20 +618,20 @@ def main():
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(X_train, Y_train, baseline_model, splits)
 
-    # experiment_rnn_stateful(X_train, Y_train, splits)
-
     model = sklearn.linear_model.LinearRegression()
     cross_validate(X_train, Y_train, model, splits)
 
-    experiment_elastic_net(X_train, Y_train, feature_names, splits)
+    experiment_elastic_net(X_train, Y_train, feature_names, splits, feature_importance=False)
 
-    experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
+    # experiment_output_transform(X_train, Y_train, args, splits)
 
-    experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
+    # experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
+
+    # experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
     experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
-    experiment_rnn(X_train, Y_train, args, splits, tune_params=True)
+    experiment_rnn(X_train, Y_train, args, splits, tune_params=False)
 
 
 def experiment_elastic_net(X_train, Y_train, feature_names, splits, feature_importance=True):
@@ -679,18 +683,22 @@ def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_par
 
 @helpers.general.Timed
 def experiment_output_transform(X_train, Y_train, args, splits):
-    base_model = make_rf()
+    base_model = make_rnn()
     cross_validate(X_train, Y_train, base_model, splits)
 
-    # standard scaler
-    output_transformer = sklearn.preprocessing.StandardScaler()
+    # plain mean
+    print("With mean of outputs")
+    output_transformer = helpers.sk.QuickTransform.make_append_mean()
     model = helpers.sk.OutputTransformation(base_model, output_transformer)
     cross_validate(X_train, Y_train, model, splits)
 
-    # PCA
-    output_transformer = sklearn.decomposition.PCA(n_components=0.999, whiten=True)
+    # with time-delayed mean
+    print("With time-delay of 7")
+    output_transformer = helpers.sk.QuickTransform.make_append_rolling(7)
     model = helpers.sk.OutputTransformation(base_model, output_transformer)
     cross_validate(X_train, Y_train, model, splits)
+
+    sys.exit(0)
 
 
 def make_gb():
@@ -741,27 +749,27 @@ def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_para
 
 def make_rf():
     """Make a random forest model with reasonable default args"""
-    return sklearn.ensemble.RandomForestRegressor(25, min_samples_leaf=100, max_depth=10, max_features=.8)
+    return sklearn.ensemble.RandomForestRegressor(25, min_samples_leaf=35, max_depth=34, max_features=20)
 
 
 @helpers.general.Timed
-def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False):
+def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=True):
     model = make_rf()
     cross_validate(X_train, Y_train, model, splits)
 
     if args.analyse_hyperparameters and tune_params:
         rf_hyperparams = {
             "min_samples_leaf": scipy.stats.randint(10, 100),
-            "max_depth": scipy.stats.randint(5, 15),
+            "max_depth": scipy.stats.randint(5, X_train.shape[1]),
             "max_features": scipy.stats.randint(8, X_train.shape[1]),
             "n_estimators": scipy.stats.randint(20, 30)
         }
-        wrapped_model = sklearn.grid_search.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3, scoring=rms_error)
-        cross_validate(X_train, Y_train, wrapped_model, splits)
-
-        model = helpers.sk.RandomizedSearchCV(sklearn.ensemble.RandomForestRegressor(), rf_hyperparams, n_iter=10, n_jobs=3, cv=splits, scoring=rms_error)
-        model.fit(X_train, Y_train)
-        model.print_tuning_scores()
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3, scoring=rms_error)
+        # cross_validate(X_train, Y_train, wrapped_model, splits)
+        #
+        # model = helpers.sk.RandomizedSearchCV(sklearn.ensemble.RandomForestRegressor(), rf_hyperparams, n_iter=10, n_jobs=3, cv=splits, scoring=rms_error)
+        wrapped_model.fit(X_train, Y_train)
+        wrapped_model.print_tuning_scores()
 
         if args.analyse_feature_importance:
             print_feature_importances(feature_names, model.best_estimator_)
