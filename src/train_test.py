@@ -356,6 +356,7 @@ def save_pairwise_score(name, X, Y, splits, threshold_score, feature_scores):
 
 
 def experiment_pairwise_features(X_train, Y_train, splits):
+    # TODO: redo this as a single ElasticNet
     # assume that they're unscaled
     feature_scores = collections.Counter()
 
@@ -630,53 +631,6 @@ def experiment_output_transform(X_train, Y_train, args, splits):
     cross_validate(X_train, Y_train, model, splits)
 
     sys.exit(0)
-
-
-def make_gb():
-    return MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor(max_features=30, n_estimators=40, subsample=0.9, learning_rate=0.3, max_depth=4, min_samples_leaf=50))
-
-
-@helpers.general.Timed
-def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=False):
-    model = make_gb()
-    cross_validate(X_train, Y_train, model, splits)
-
-    if args.analyse_hyperparameters and tune_params:
-        gb_hyperparams = {
-            "learning_rate": scipy.stats.uniform(0.1, 0.5),
-            "n_estimators": scipy.stats.randint(20, 50),
-            "max_depth": scipy.stats.randint(3, 6),
-            "min_samples_leaf": scipy.stats.randint(10, 100),
-            "subsample": [0.9],
-            "max_features": scipy.stats.randint(8, X_train.shape[1])
-        }
-        wrapped_model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(sklearn.ensemble.GradientBoostingRegressor(), gb_hyperparams, n_iter=20, n_jobs=3, scoring=rms_error))
-        cross_validate(X_train, Y_train, wrapped_model, splits)
-
-        wrapped_model.fit(X_train, Y_train)
-        wrapped_model.print_best_params()
-
-        if args.analyse_feature_importance:
-            wrapped_model.print_feature_importances(feature_names)
-
-
-def experiment_adaboost(X_train, Y_train, args, feature_names, splits, tune_params=False):
-    model = MultivariateRegressionWrapper(sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression(), n_estimators=4, learning_rate=0.5, loss="square"))
-    cross_validate(X_train, Y_train, model, splits)
-
-    if args.analyse_hyperparameters and tune_params:
-        ada_params = {
-            "learning_rate": scipy.stats.uniform(0.1, 1.),
-            "n_estimators": scipy.stats.randint(2, 10),
-            "loss": ["linear", "square"]
-        }
-        base_model = sklearn.ensemble.AdaBoostRegressor(base_estimator=sklearn.linear_model.LinearRegression(), loss="square")
-        model = MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, ada_params, scoring=rms_error))
-        cross_validate(X_train, Y_train, model, splits)
-
-        print("Refitting to show hyperparams")
-        model.fit(X_train, Y_train)
-        model.print_best_params()
 
 
 def make_rf():
