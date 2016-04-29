@@ -3,6 +3,8 @@ from __future__ import unicode_literals
 import unittest
 
 import pandas
+
+import helpers.features
 import train_test
 
 
@@ -18,9 +20,9 @@ class UmbraTests(unittest.TestCase):
 
         dummy_events = [self._make_time(pandas.datetime(year=2016, month=4, day=1, hour=5, minute=50)), self._make_time(pandas.datetime(year=2016, month=4, day=1, hour=7, minute=20))]
 
-        indicatored = train_test.get_event_series(hourly_index, dummy_events)
+        indicatored = helpers.features.get_event_series(hourly_index, dummy_events)
         self.assertEqual(1, indicatored.sum())
 
         minute_index = pandas.DatetimeIndex(freq="1Min", start=pandas.datetime(year=2016, month=4, day=1), periods=1000)
-        indicatored = train_test.get_event_series(minute_index, dummy_events)
+        indicatored = helpers.features.get_event_series(minute_index, dummy_events)
         self.assertEqual(60, indicatored.sum())

@@ -30,6 +30,7 @@ from sklearn.linear_model import LinearRegression
 import helpers.general
 import helpers.neural
 import helpers.sk
+from helpers.features import add_lag_feature, add_transformation_feature, get_event_series
 from helpers.sk import MultivariateRegressionWrapper, print_feature_importances, rms_error
 
 
@@ -43,7 +44,7 @@ def parse_args():
     parser.add_argument("--analyse-feature-importance", default=False, action="store_true", help="Analyse feature importance and print them out for some models")
     parser.add_argument("--analyse-hyperparameters", default=False, action="store_true", help="Analyse hyperparameters and print them out for some models")
 
-    parser.add_argument("training_dir", help="Dir with the training CSV files")
+    parser.add_argument("training_dir", help="Dir with the training CSV files or joined CSV file with the complete feature matrix")
     return parser.parse_args()
 
 
@@ -70,6 +71,7 @@ def get_evtf_ranges(event_data, event_prefix):
             current_start = None
     return event_ranges
 
+
 def get_dmop_subsystem(dmop_data):
     """Extract the subsystem from each record of the dmop data"""
     dmop_subsys = dmop_data.subsystem.str.extract(r"A(?P<subsystem>\w{3}.*)", expand=False)
@@ -87,7 +89,7 @@ def time_range(start_time, end_time):
             "end": end_time}
 
 
-def get_dmop_ranges(dmop_subsystem, subsystem_name, hours_impact=1):
+def get_dmop_ranges(dmop_subsystem, subsystem_name, hours_impact=1.):
     time_offset = pandas.Timedelta(hours=hours_impact)
     for t in dmop_subsystem[dmop_subsystem == subsystem_name].index:
         yield time_range(t, t + time_offset)
@@ -107,22 +109,11 @@ def get_evtf_altitude(event_data, index=None):
 
     return alt
 
+
 def get_ftl_periods(ftl_slice):
     """Get time ranges for FTL data (first two columns are start and end time so it's simple)"""
     for row in ftl_slice.itertuples():
         yield time_range(row[0], row[1])
-
-
-def get_event_series(datetime_index, event_ranges):
-    """Create a boolean series showing when in the datetime_index we're in the time ranges in the event_ranges"""
-    series = pandas.Series(data=0, index=datetime_index, dtype=numpy.int8)
-
-    for event in event_ranges:
-        closest_start = series.index.searchsorted(event["start"], side="right")
-        closest_end = series.index.searchsorted(event["end"], side="right")
-        series.loc[closest_start:closest_end] = 1
-
-    return series
 
 
 def load_series(files, add_file_number=False, resample_interval=None, date_cols=True):
@@ -256,37 +247,6 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     return data
 
 
-def add_lag_feature(data, feature, window, time_suffix, drop=False, data_type=None):
-    name = feature + "_rolling_{}".format(time_suffix)
-    data[name] = data[feature].rolling(window=window).mean().fillna(method="backfill")
-
-    if data_type:
-        data[name] = data[name].astype(data_type)
-
-    if drop:
-        data.drop([feature], axis=1, inplace=True)
-
-
-def add_transformation_feature(data, feature, transform, drop=False):
-    new_name = feature + "_" + transform
-
-    if transform == "log":
-        transformed = numpy.log(data[feature] + 1)
-    elif transform == "square":
-        transformed = numpy.square(data[feature])
-    elif transform == "sqrt":
-        transformed = numpy.sqrt(data[feature])
-    elif transform == "gradient":
-        transformed = numpy.gradient(data[feature])
-    else:
-        print("Unknown transform {} specified".format(transform))
-        sys.exit(-1)
-
-    data[new_name] = transformed
-
-    if drop:
-        data.drop([feature], axis=1, inplace=True)
-
 def compute_upper_bounds(data):
     data = data[[c for c in data.columns if c.startswith("NPWD")]]
 
@@ -299,7 +259,7 @@ def compute_upper_bounds(data):
 
 
 def make_nn(history_file=None):
-    """Make a neural network model with reasonable default args"""
+    """Make a plain neural network with reasonable default args"""
 
     model = helpers.neural.NnRegressor(num_epochs=500,
                                        batch_size=256,
@@ -328,15 +288,9 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
     if args.analyse_hyperparameters and tune_params:
         print("Running hyperparam opt")
         nn_hyperparams = {
-            # "batch_size": [200, 500],
-            # "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
-            # "dropout": [0.4, 0.5, 0.6],
             "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-1, 1e-4),
             "input_dropout": [0, 0.02, 0.05, 0.1],
-            # "optimizer": ["adam", "rmsprop", "adamax"]
             "activation": ["sigmoid", "tanh", "elu"],
-            # "hidden_layer_sizes": [(100,), (200,), (100, 100)],
-            # "loss": ["mse", "mae"]
         }
         model = make_nn()
         model.history_file = None
@@ -347,8 +301,9 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
         wrapped_model.print_tuning_scores()
 
 
-def make_rnn(history_file=None):
-    model = helpers.neural.RnnRegressor(learning_rate=4e-3,
+def make_rnn(history_file=None, augment_output=False):
+    """Make a recurrent neural network with reasonable default args for this task"""
+    model = helpers.neural.RnnRegressor(learning_rate=2e-3,
                                         num_units=50,
                                         time_steps=4,
                                         batch_size=256,
@@ -364,7 +319,8 @@ def make_rnn(history_file=None):
                                         pretrain=True,
                                         history_file=history_file)
 
-    # model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
+    if augment_output:
+        model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
 
     return model
 
@@ -377,20 +333,12 @@ def experiment_rnn(X_train, Y_train, args, splits, tune_params=False):
     if args.analyse_hyperparameters and tune_params:
         hyperparams = {
             "num_units": [25, 50, 100, 200],
-            # "input_noise": helpers.sk.RandomizedSearchCV.uniform(0., 0.2),
             "dropout": [0.5, 0.55, 0.6],
             "recurrent_dropout": [0.4, 0.5, 0.6],
             # "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 5e-4),
             # "time_steps": [3, 4, 5],
             "input_dropout": [0.02, 0.04],
-            # "activation": ["tanh", "relu"]
-            # "val": [0.1]
-            # "batch_size": [1, 2, 4, 8, 16, 32, 64]
-            # "optimizer": ["adam", "rmsprop", "adamax"]
-            # "posttrain": [True, False]
         }
-        # model.verbose = 1
-        model.history_file = None
         wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error, refit=False)
 
         wrapped_model.fit(X_train, Y_train)
@@ -404,12 +352,14 @@ def score_feature(X_train, Y_train, splits):
     model = sklearn.linear_model.LinearRegression()
     return sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits).mean()
 
+
 def save_pairwise_score(name, X, Y, splits, threshold_score, feature_scores):
     score = score_feature(X, Y, splits)
 
     # only log 5% improvement or more
     if (threshold_score - score) / threshold_score > 0.05:
         feature_scores[name] = score
+
 
 def experiment_pairwise_features(X_train, Y_train, splits):
     # assume that they're unscaled
@@ -433,7 +383,7 @@ def experiment_pairwise_features(X_train, Y_train, splits):
             save_pairwise_score("{} - {}".format(a, b), X_train[a] - X_train[b], Y_train, splits, threshold_score, feature_scores)
 
     print("Feature correlations")
-    for feature, mse in sorted(feature_scores.iteritems(), key=itemgetter(1)):
+    for feature, mse in sorted(feature_scores.items(), key=itemgetter(1)):
         print("\t{}: {:.4f}".format(feature, mse))
 
 
@@ -445,7 +395,7 @@ def verify_data(train_df, test_df, filename):
     if data_na.sum() > 0:
         logger.error("Null values in feature matrix")
 
-        for feature, na_count in data_na.iteritems():
+        for feature, na_count in data_na.items():
             if na_count > 0:
                 logger.error("{}: {:.1f}% null ({:,} / {:,})".format(feature, 100. * na_count / len(train_df), na_count, len(train_df)))
 
@@ -453,7 +403,7 @@ def verify_data(train_df, test_df, filename):
 
     # test stddevs
     train_std = train_df.std()
-    for feature, std in train_std.iteritems():
+    for feature, std in train_std.items():
         if std < 0.1:
             print("{} stddev {}".format(feature, std))
 
@@ -638,9 +588,7 @@ def experiment_elastic_net(X_train, Y_train, feature_names, splits, feature_impo
 
 
 def make_scaler():
-    pipe = []
-    pipe.append(("scaler", helpers.sk.ClippedRobustScaler()))
-    # pipe.append(("pca", sklearn.decomposition.PCA(n_components=0.993, whiten=True)))
+    pipe = [("scaler", helpers.sk.ClippedRobustScaler())]
 
     preprocessing_pipeline = sklearn.pipeline.Pipeline(pipe)
     return preprocessing_pipeline
@@ -650,6 +598,7 @@ def make_blr(**kwargs):
     """Make a bagged linear regression model with reasonable default args"""
     model = helpers.sk.MultivariateBaggingRegressor(LinearRegression(), max_samples=0.98, max_features=.8, n_estimators=30, **kwargs)
     return model
+
 
 @helpers.general.Timed
 def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False):
@@ -663,7 +612,6 @@ def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_par
         }
         base_model = make_blr()
         model = helpers.sk.RandomizedSearchCV(base_model, bagging_params, n_iter=20, n_jobs=1, scoring=rms_error)
-        # cross_validate(X_train, Y_train, model, "RandomizedSearchCV(Bagging(LinearRegression))", splits)
 
         # refit on full data to get a single model and spit out the info
         model.fit(X_train, Y_train)
@@ -692,6 +640,7 @@ def experiment_output_transform(X_train, Y_train, args, splits):
 
 def make_gb():
     return MultivariateRegressionWrapper(sklearn.ensemble.GradientBoostingRegressor(max_features=30, n_estimators=40, subsample=0.9, learning_rate=0.3, max_depth=4, min_samples_leaf=50))
+
 
 @helpers.general.Timed
 def experiment_gradient_boosting(X_train, Y_train, args, feature_names, splits, tune_params=False):
@@ -754,9 +703,6 @@ def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune
             "n_estimators": scipy.stats.randint(20, 30)
         }
         wrapped_model = helpers.sk.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3, scoring=rms_error)
-        # cross_validate(X_train, Y_train, wrapped_model, splits)
-        #
-        # model = helpers.sk.RandomizedSearchCV(sklearn.ensemble.RandomForestRegressor(), rf_hyperparams, n_iter=10, n_jobs=3, cv=splits, scoring=rms_error)
         wrapped_model.fit(X_train, Y_train)
         wrapped_model.print_tuning_scores()
 
@@ -773,6 +719,7 @@ def verify_splits(X, Y, splits):
         print("\tX[train].std diffs: ", X[train].std(axis=0) - X.std(axis=0))
         print("\tY[train].mean: ", Y[train].mean(axis=0))
         print("\tY[train].std: ", Y[train].std(axis=0).mean())
+
 
 def cross_validate(X_train, Y_train, model, splits, n_jobs=1):
     scores = sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits, n_jobs=n_jobs)
