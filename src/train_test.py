@@ -397,7 +397,7 @@ def verify_data(train_df, test_df, filename):
 
     # test stddevs
     train_std = train_df.std()
-    for feature, std in train_std.items():
+    for feature, std in train_std.iteritems():
         if std < 0.1:
             print("{} stddev {}".format(feature, std))
 
