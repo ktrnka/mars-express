@@ -30,8 +30,9 @@ from sklearn.linear_model import LinearRegression
 import helpers.general
 import helpers.neural
 import helpers.sk
+from helpers.debug import verify_data
 from helpers.features import add_lag_feature, add_transformation_feature, get_event_series, TimeRange
-from helpers.sk import MultivariateRegressionWrapper, print_feature_importances, rms_error
+from helpers.sk import print_feature_importances, rms_error
 
 
 def parse_args():
@@ -382,42 +383,6 @@ def experiment_pairwise_features(X_train, Y_train, splits):
         print("\t{}: {:.4f}".format(feature, mse))
 
 
-def verify_data(train_df, test_df, filename):
-    logger = helpers.general.get_function_logger()
-
-    # simple check on NaN
-    data_na = train_df[[c for c in train_df.columns if not c.startswith("NPWD")]].isnull().sum()
-    if data_na.sum() > 0:
-        logger.error("Null values in feature matrix")
-
-        for feature, na_count in data_na.items():
-            if na_count > 0:
-                logger.error("{}: {:.1f}% null ({:,} / {:,})".format(feature, 100. * na_count / len(train_df), na_count, len(train_df)))
-
-        sys.exit(-1)
-
-    # test stddevs
-    train_std = train_df.std()
-    for feature, std in train_std.iteritems():
-        if std < 0.1:
-            print("{} stddev {}".format(feature, std))
-
-    # scale both input and output
-    train = sklearn.preprocessing.RobustScaler().fit_transform(train_df)
-    test = sklearn.preprocessing.StandardScaler().fit_transform(test_df)
-
-    # find inputs with values over 10x IQR from median
-    train_deviants = numpy.abs(train) > 10
-    train_deviant_rows = train_deviants.sum(axis=1) > 0
-
-    deviant_df = pandas.DataFrame(numpy.hstack([train[train_deviant_rows], test[train_deviant_rows]]), columns=list(train_df.columns) + list(test_df.columns))
-    if deviant_df.shape[0] > 0:
-        logger.warn("Found {:,} deviant rows, saving to {}".format(deviant_df.shape[0], filename))
-        deviant_df.to_csv(filename)
-    else:
-        print("No deviant rows")
-
-
 def experiment_learning_rate_schedule(X_train, Y_train, splits):
     model = make_nn()
     model.val = 0.1
@@ -656,17 +621,6 @@ def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune
 
         if args.analyse_feature_importance:
             print_feature_importances(feature_names, model.best_estimator_)
-
-
-def verify_splits(X, Y, splits):
-    for i, (train, test) in enumerate(splits):
-        # analyse train and test
-        print("Split {}".format(i))
-
-        print("\tX[train].mean diff: ", X[train].mean(axis=0) - X.mean(axis=0))
-        print("\tX[train].std diffs: ", X[train].std(axis=0) - X.std(axis=0))
-        print("\tY[train].mean: ", Y[train].mean(axis=0))
-        print("\tY[train].std: ", Y[train].std(axis=0).mean())
 
 
 def cross_validate(X_train, Y_train, model, splits, n_jobs=1):
