@@ -1,15 +1,16 @@
-from __future__ import unicode_literals
 from __future__ import print_function
+from __future__ import unicode_literals
 
-import collections
-import sys
 import argparse
-
 import operator
+import sys
+
 import pandas
+
 """
 Diff two pandas CSV files and spit out some info.
 """
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -46,7 +47,6 @@ def diff_dataframes(*dataframes):
         else:
             for feature in diff_features:
                 print("\t{}: {} diff of means".format(feature, diff_features[feature]))
-
 
 
 def main():

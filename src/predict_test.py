@@ -1,8 +1,8 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
-from helpers.general import with_num_features, with_model_name, with_date
-from helpers.sk import get_model_name
+from helpers.general import with_num_features, with_date
+from helpers.sk import with_model_name
 from train_test import *
 
 
@@ -109,7 +109,7 @@ def verify_predictions(X_test, baseline_model, model):
         unusual_inputs = X_test[unusual_rows].reshape(-1, X_test.shape[1])
         unusual_outputs = predictions[unusual_rows].reshape(-1, predictions.shape[1])
 
-        for i in xrange(unusual_inputs.shape[0]):
+        for i in range(unusual_inputs.shape[0]):
             print(("Input: ", unusual_inputs[i]))
             print(("Output: ", unusual_outputs[i]))
 

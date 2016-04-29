@@ -30,7 +30,7 @@ from sklearn.linear_model import LinearRegression
 import helpers.general
 import helpers.neural
 import helpers.sk
-from helpers.features import add_lag_feature, add_transformation_feature, get_event_series
+from helpers.features import add_lag_feature, add_transformation_feature, get_event_series, TimeRange
 from helpers.sk import MultivariateRegressionWrapper, print_feature_importances, rms_error
 
 
@@ -67,7 +67,7 @@ def get_evtf_ranges(event_data, event_prefix):
             current_start = date
         elif current_start:
             assert row["description"].endswith("_END")
-            event_ranges.append(time_range(current_start, date))
+            event_ranges.append(TimeRange(current_start, date))
             current_start = None
     return event_ranges
 
@@ -83,16 +83,10 @@ def get_dmop_subsystem(dmop_data):
     return dmop_subsys
 
 
-def time_range(start_time, end_time):
-    return {"duration": end_time - start_time,
-            "start": start_time,
-            "end": end_time}
-
-
 def get_dmop_ranges(dmop_subsystem, subsystem_name, hours_impact=1.):
     time_offset = pandas.Timedelta(hours=hours_impact)
     for t in dmop_subsystem[dmop_subsystem == subsystem_name].index:
-        yield time_range(t, t + time_offset)
+        yield TimeRange(t, t + time_offset)
 
 
 def get_evtf_altitude(event_data, index=None):
@@ -113,7 +107,7 @@ def get_evtf_altitude(event_data, index=None):
 def get_ftl_periods(ftl_slice):
     """Get time ranges for FTL data (first two columns are start and end time so it's simple)"""
     for row in ftl_slice.itertuples():
-        yield time_range(row[0], row[1])
+        yield TimeRange(row[0], row[1])
 
 
 def load_series(files, add_file_number=False, resample_interval=None, date_cols=True):
