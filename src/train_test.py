@@ -37,7 +37,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--debug", default=False, action="store_true", help="Debug logging")
 
-    parser.add_argument("--float32", default=False, action="store_true", help="Use 32-bit float instead of default 64-bit, may be faster")
     parser.add_argument("--feature-pairs", default=False, action="store_true", help="Try out pairs of features")
     parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
     parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
@@ -610,10 +609,6 @@ def main():
     X_train = scaler.fit_transform(X_train)
 
     Y_train = Y_train.values
-    if args.float32:
-        helpers.neural.set_theano_float_precision("float32")
-        X_train = X_train.astype(numpy.float32)
-        Y_train = Y_train.astype(numpy.float32)
 
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(X_train, Y_train, baseline_model, splits)
@@ -622,12 +617,6 @@ def main():
     cross_validate(X_train, Y_train, model, splits)
 
     experiment_elastic_net(X_train, Y_train, feature_names, splits, feature_importance=False)
-
-    # experiment_output_transform(X_train, Y_train, args, splits)
-
-    # experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False)
-
-    # experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False)
 
     experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
 
