@@ -127,13 +127,11 @@ def load_series(files, add_file_number=False, resample_interval=None, date_cols=
     return data
 
 
-# noinspection PyPackageRequirements
 @helpers.general.Timed
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
     logger = helpers.general.get_function_logger()
 
     if not os.path.isdir(data_dir):
-        print("Input is a file, reading directly")
         return pandas.read_csv(data_dir, index_col=0, parse_dates=True)
 
     # load the base power data
@@ -242,14 +240,14 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     return data
 
 
-def compute_upper_bounds(data):
-    data = data[[c for c in data.columns if c.startswith("NPWD")]]
+def compute_upper_bounds(dataframe):
+    dataframe = dataframe[[c for c in dataframe.columns if c.startswith("NPWD")]]
 
     for interval in "7D 1D 12H 6H 2H 1H 30M".split():
-        downsampled_data = data.resample(interval).mean()
-        upsampled_data = downsampled_data.reindex(data.index, method="pad")
+        downsampled_data = dataframe.resample(interval).mean()
+        upsampled_data = downsampled_data.reindex(dataframe.index, method="pad")
 
-        rms = ((data - upsampled_data) ** 2).mean().mean() ** 0.5
+        rms = ((dataframe - upsampled_data) ** 2).mean().mean() ** 0.5
         print("RMS with {} approximation: {:.3f}".format(interval, rms))
 
 
@@ -276,11 +274,11 @@ def make_nn(history_file=None):
     return model
 
 @helpers.general.Timed
-def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False):
+def experiment_neural_network(dataset, tune_params=False):
     model = make_nn()
-    cross_validate(X_train, Y_train, model, splits)
+    cross_validate(dataset, model)
 
-    if args.analyse_hyperparameters and tune_params:
+    if tune_params:
         print("Running hyperparam opt")
         nn_hyperparams = {
             "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-1, 1e-4),
@@ -289,10 +287,10 @@ def experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
         }
         model = make_nn()
         model.history_file = None
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=30, scoring=rms_error, refit=False)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=30, scoring=rms_error, cv=dataset.splits, refit=False)
         # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
 
-        wrapped_model.fit(X_train, Y_train)
+        wrapped_model.fit(dataset.inputs, dataset.outputs)
         wrapped_model.print_tuning_scores()
 
 
@@ -321,11 +319,11 @@ def make_rnn(history_file=None, augment_output=False):
 
 
 @helpers.general.Timed
-def experiment_rnn(X_train, Y_train, args, splits, tune_params=False):
+def experiment_rnn(dataset, tune_params=False):
     model = make_rnn()
-    cross_validate(X_train, Y_train, model, splits)
+    cross_validate(dataset, model)
 
-    if args.analyse_hyperparameters and tune_params:
+    if tune_params:
         hyperparams = {
             "num_units": [25, 50, 100, 200],
             "dropout": [0.5, 0.55, 0.6],
@@ -334,9 +332,9 @@ def experiment_rnn(X_train, Y_train, args, splits, tune_params=False):
             # "time_steps": [3, 4, 5],
             "input_dropout": [0.02, 0.04],
         }
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error, refit=False)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
 
-        wrapped_model.fit(X_train, Y_train)
+        wrapped_model.fit(dataset.inputs, dataset.outputs)
         wrapped_model.print_tuning_scores()
 
 
@@ -383,47 +381,40 @@ def experiment_pairwise_features(X_train, Y_train, splits):
         print("\t{}: {:.4f}".format(feature, mse))
 
 
-def experiment_learning_rate_schedule(X_train, Y_train, splits):
+def experiment_learning_rate_schedule(dataset):
     model = make_nn()
     model.val = 0.1
 
     # base = no schedule
     print("Baseline NN")
     model.history_file = "nn_default.csv"
-    model.fit(X_train, Y_train)
+    model.fit(dataset.inputs, dataset.outputs)
 
     # higher init, decay set to reach the same at 40 epochs
     model.schedule = helpers.neural.make_learning_rate_schedule(model.learning_rate, exponential_decay=0.94406087628)
     print("NN with decay")
     model.history_file = "nn_decay.csv"
-    model.fit(X_train, Y_train)
+    model.fit(dataset.inputs, dataset.outputs)
 
     model.schedule = None
     model.extra_callback = helpers.neural.AdaptiveLearningRateScheduler(model.learning_rate, monitor="val_loss", scale=1.1, window=5)
     print("NN with variance schedule")
     model.history_file = "nn_variance_schedule.csv"
-    model.fit(X_train, Y_train)
+    model.fit(dataset.inputs, dataset.outputs)
 
     sys.exit(0)
 
 
-def experiment_output_augmentation(X_train, Y_train, splits):
+def experiment_output_augmentation(dataset):
     model = make_nn()
 
-    cross_validate(X_train, Y_train, model, splits)
-    cross_validate(X_train, Y_train, helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean()), splits)
+    cross_validate(dataset, model)
+    cross_validate(dataset, helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean()))
 
     sys.exit(0)
 
 
-def experiment_rnn_elu(X_train, Y_train, splits):
-    model = make_rnn()
-
-    # print("RNN with ELU no second dropout")
-    # model.hidden_layer_sizes = (75,)
-    # model.activation = "elu"
-    # cross_validate(X_train, Y_train, model, splits)
-
+def experiment_rnn_elu(dataset):
     model = helpers.neural.RnnRegressor(learning_rate=1e-3,
                                         num_units=50,
                                         time_steps=3,
@@ -446,27 +437,27 @@ def experiment_rnn_elu(X_train, Y_train, splits):
         "dropout": [0.25, 0.5, .75]
     }
 
-    wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error, refit=False)
+    wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error, cv=dataset.splits, refit=False)
 
-    wrapped_model.fit(X_train, Y_train)
+    wrapped_model.fit(dataset.inputs, dataset.outputs)
     wrapped_model.print_tuning_scores()
 
     sys.exit(0)
 
 
-def experiment_rnn_longer(X_train, Y_train, splits):
+def experiment_rnn_longer(dataset):
     model = make_rnn()
 
     time = 10
     print("RNN time ", time)
     model.time_steps = time
     model.num_epochs = 1000
-    cross_validate(X_train, Y_train, model, splits)
+    cross_validate(dataset, model)
 
     sys.exit(0)
 
 
-def experiment_rnn_stateful(X_train, Y_train, splits):
+def experiment_rnn_stateful(dataset):
     model = make_rnn()
     model.batch_size = 4
     model.time_steps = 4
@@ -477,11 +468,11 @@ def experiment_rnn_stateful(X_train, Y_train, splits):
     model.num_epochs = 300
 
     print("RNN baseline")
-    cross_validate(X_train, Y_train, model, splits)
+    cross_validate(dataset, model)
 
     print("RNN stateful")
     model.stateful = True
-    cross_validate(X_train, Y_train, model, splits)
+    cross_validate(dataset, model)
 
     sys.exit(0)
 
@@ -520,28 +511,30 @@ def main():
 
     Y_train = Y_train.values
 
+    dataset = helpers.general.DataSet(X_train, Y_train, splits, feature_names)
+
     baseline_model = sklearn.dummy.DummyRegressor("mean")
-    cross_validate(X_train, Y_train, baseline_model, splits)
+    cross_validate(dataset, baseline_model)
 
     model = sklearn.linear_model.LinearRegression()
-    cross_validate(X_train, Y_train, model, splits)
+    cross_validate(dataset, model)
 
-    experiment_elastic_net(X_train, Y_train, feature_names, splits, feature_importance=False)
+    experiment_elastic_net(dataset, feature_importance=False)
 
-    experiment_neural_network(X_train, Y_train, args, splits, tune_params=False)
+    experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
 
-    experiment_rnn(X_train, Y_train, args, splits, tune_params=False)
+    experiment_rnn(dataset, tune_params=False and args.analyse_hyperparameters)
 
 
-def experiment_elastic_net(X_train, Y_train, feature_names, splits, feature_importance=True):
+def experiment_elastic_net(dataset, feature_importance=True):
     model = sklearn.linear_model.ElasticNet(0.01)
-    cross_validate(X_train, Y_train, model, splits)
+    cross_validate(dataset, model)
 
     if feature_importance:
-        model.fit(X_train, Y_train)
+        model.fit(dataset.inputs, dataset.outputs)
 
         feature_importances = collections.Counter()
-        for fname, fweight in zip(feature_names, helpers.sk.get_lr_importances(model)):
+        for fname, fweight in zip(dataset.feature_names, helpers.sk.get_lr_importances(model)):
             feature_importances[fname] = fweight
         print("Feature potentials from ElasticNet (max of abs per-output coefs)")
         pprint(feature_importances.most_common())
@@ -561,39 +554,38 @@ def make_blr(**kwargs):
 
 
 @helpers.general.Timed
-def experiment_bagged_linear_regression(X_train, Y_train, args, splits, tune_params=False):
+def experiment_bagged_linear_regression(dataset, tune_params=False):
     model = make_blr()
-    cross_validate(X_train, Y_train, model, splits)
+    cross_validate(dataset, model)
 
-    if args.analyse_hyperparameters and tune_params:
+    if tune_params:
         bagging_params = {
             "max_samples": helpers.sk.RandomizedSearchCV.uniform(0.85, 1.),
             "max_features": helpers.sk.RandomizedSearchCV.uniform(0.5, 1.)
         }
         base_model = make_blr()
-        model = helpers.sk.RandomizedSearchCV(base_model, bagging_params, n_iter=20, n_jobs=1, scoring=rms_error)
+        model = helpers.sk.RandomizedSearchCV(base_model, bagging_params, n_iter=20, n_jobs=1, cv=dataset.splits, scoring=rms_error)
 
-        # refit on full data to get a single model and spit out the info
-        model.fit(X_train, Y_train)
+        model.fit(dataset.inputs, dataset.outputs)
         model.print_tuning_scores()
 
 
 @helpers.general.Timed
-def experiment_output_transform(X_train, Y_train, args, splits):
+def experiment_output_transform(dataset):
     base_model = make_rnn()
-    cross_validate(X_train, Y_train, base_model, splits)
+    cross_validate(dataset, base_model)
 
     # plain mean
     print("With mean of outputs")
     output_transformer = helpers.sk.QuickTransform.make_append_mean()
     model = helpers.sk.OutputTransformation(base_model, output_transformer)
-    cross_validate(X_train, Y_train, model, splits)
+    cross_validate(dataset, model)
 
     # with time-delayed mean
     print("With time-delay of 7")
     output_transformer = helpers.sk.QuickTransform.make_append_rolling(7)
     model = helpers.sk.OutputTransformation(base_model, output_transformer)
-    cross_validate(X_train, Y_train, model, splits)
+    cross_validate(dataset, model)
 
     sys.exit(0)
 
@@ -604,7 +596,7 @@ def make_rf():
 
 
 @helpers.general.Timed
-def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=True):
+def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False):
     model = make_rf()
     cross_validate(X_train, Y_train, model, splits)
 
@@ -623,8 +615,8 @@ def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune
             print_feature_importances(feature_names, model.best_estimator_)
 
 
-def cross_validate(X_train, Y_train, model, splits, n_jobs=1):
-    scores = sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits, n_jobs=n_jobs)
+def cross_validate(dataset, model, n_jobs=1):
+    scores = sklearn.cross_validation.cross_val_score(model, dataset.inputs, dataset.outputs, scoring=rms_error, cv=dataset.splits, n_jobs=n_jobs)
     print("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
 
 
