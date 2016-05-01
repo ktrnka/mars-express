@@ -264,11 +264,10 @@ def make_nn(history_file=None):
                                        hidden_units=200,
                                        early_stopping=True,
                                        val=0.1,
-                                       loss="mse",
                                        l2=0.0001,
                                        maxnorm=True,
                                        history_file=history_file,
-                                       schedule=helpers.neural.make_learning_rate_schedule(1e-3, exponential_decay=0.99),
+                                       lr_decay=0.99,
                                        assert_finite=False)
 
     return model
@@ -281,13 +280,16 @@ def experiment_neural_network(dataset, tune_params=False):
     if tune_params:
         print("Running hyperparam opt")
         nn_hyperparams = {
-            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-1, 1e-4),
-            "input_dropout": [0, 0.02, 0.05, 0.1],
-            "activation": ["sigmoid", "tanh", "elu"],
+            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 1e-4),
+            "lr_decay": helpers.sk.RandomizedSearchCV.exponential(1 - 1e-2, 1 - 1e-5),
+            "input_dropout": helpers.sk.RandomizedSearchCV.uniform(0., 0.1),
+            "input_noise": helpers.sk.RandomizedSearchCV.uniform(0.05, 0.2),
+            "hidden_units": helpers.sk.RandomizedSearchCV.uniform(100, 500),
+            "dropout": helpers.sk.RandomizedSearchCV.uniform(0.3, 0.7)
         }
         model = make_nn()
         model.history_file = None
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=30, scoring=rms_error, cv=dataset.splits, refit=False)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=10, scoring=rms_error, cv=dataset.splits, refit=False)
         # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
 
         wrapped_model.fit(dataset.inputs, dataset.outputs)
@@ -521,7 +523,7 @@ def main():
 
     experiment_elastic_net(dataset, feature_importance=False)
 
-    experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
+    experiment_neural_network(dataset, tune_params=True and args.analyse_hyperparameters)
 
     experiment_rnn(dataset, tune_params=False and args.analyse_hyperparameters)
 
