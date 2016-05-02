@@ -39,6 +39,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--debug", default=False, action="store_true", help="Debug logging")
 
+    parser.add_argument("--verify", default=False, action="store_true", help="Run verifications on the input data for outliers and such")
+
     parser.add_argument("--feature-pairs", default=False, action="store_true", help="Try out pairs of features")
     parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
     parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
@@ -204,7 +206,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     # best 2 from EN
     for num_days in [1, 8]:
-        saaf_data["SAAF_sy_stddev_{}d".format(num_days)] = saaf_data["sy"].rolling(num_days * 24).std().fillna(method="bfill")
+        saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24).std().fillna(method="bfill").sum(axis=1)
 
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
@@ -289,7 +291,7 @@ def experiment_neural_network(dataset, tune_params=False):
         }
         model = make_nn()
         model.history_file = None
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=10, scoring=rms_error, cv=dataset.splits, refit=False)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=20, scoring=rms_error, cv=dataset.splits, refit=False)
         # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
 
         wrapped_model.fit(dataset.inputs, dataset.outputs)
@@ -327,14 +329,16 @@ def experiment_rnn(dataset, tune_params=False):
 
     if tune_params:
         hyperparams = {
-            "num_units": [25, 50, 100, 200],
-            "dropout": [0.5, 0.55, 0.6],
-            "recurrent_dropout": [0.4, 0.5, 0.6],
+            "learning_rate": helpers.sk.RandomizedSearchCV.uniform(5e-3, 5e-4),
+            "lr_decay": [0.999, 1]
+            # "num_units": [25, 50, 100, 200],
+            # "dropout": [0.5, 0.55, 0.6],
+            # "recurrent_dropout": [0.4, 0.5, 0.6],
             # "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 5e-4),
-            # "time_steps": [3, 4, 5],
-            "input_dropout": [0.02, 0.04],
+            # "time_steps": [4, 8, 16],
+            # "input_dropout": [0.02, 0.04],
         }
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=3, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
 
         wrapped_model.fit(dataset.inputs, dataset.outputs)
         wrapped_model.print_tuning_scores()
@@ -496,7 +500,9 @@ def main():
 
     # just use the biggest one for now
     X_train, Y_train = separate_output(train_data)
-    verify_data(X_train, Y_train, "training_deviants.csv")
+
+    if args.verify:
+        verify_data(X_train, Y_train, None)
 
     if args.extra_analysis:
         X_train.info()
@@ -523,9 +529,9 @@ def main():
 
     experiment_elastic_net(dataset, feature_importance=False)
 
-    experiment_neural_network(dataset, tune_params=True and args.analyse_hyperparameters)
+    experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
 
-    experiment_rnn(dataset, tune_params=False and args.analyse_hyperparameters)
+    experiment_rnn(dataset, tune_params=True and args.analyse_hyperparameters)
 
 
 def experiment_elastic_net(dataset, feature_importance=True):
