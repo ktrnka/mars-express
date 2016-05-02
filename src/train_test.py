@@ -249,8 +249,7 @@ def compute_upper_bounds(dataframe):
         downsampled_data = dataframe.resample(interval).mean()
         upsampled_data = downsampled_data.reindex(dataframe.index, method="pad")
 
-        rms = ((dataframe - upsampled_data) ** 2).mean().mean() ** 0.5
-        print("RMS with {} approximation: {:.3f}".format(interval, rms))
+        print("RMS with {} approximation: {:.3f}".format(interval, helpers.sk._rms_error(dataframe, upsampled_data)))
 
 
 def make_nn(history_file=None):
