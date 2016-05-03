@@ -177,7 +177,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
     event_data["EVTF_event_counts"] = 1
-    event_data = event_data.resample("1H").count().reindex(data.index, method="nearest")
+    # event_data = event_data.resample("1H").count().reindex(data.index, method="nearest")
+    event_data = event_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
     event_data["EVTF_altitude"] = altitude_series
     add_lag_feature(event_data, "EVTF_event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(event_data, "EVTF_event_counts", 5, "5h", data_type=numpy.int64)
@@ -196,13 +197,15 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
-    dmop_data = dmop_data.resample("1H").count().reindex(data.index, method="nearest")
+    dmop_data = dmop_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
+    # dmop_data = dmop_data.resample("1H").count().reindex(data.index, method="nearest")
     add_lag_feature(dmop_data, "DMOP_event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(dmop_data, "DMOP_event_counts", 5, "5h", data_type=numpy.int64)
 
     ### SAAF ###
     saaf_data = load_series(find_files(data_dir, "saaf"))
-    saaf_data = saaf_data.resample("1H").mean().reindex(data.index, method="nearest").interpolate()
+    # saaf_data = saaf_data.resample("1H").mean().reindex(data.index, method="nearest").interpolate()
+    saaf_data = saaf_data.resample("30Min").mean().rolling(2).mean().interpolate().fillna(method="bfill").reindex(data.index, method="nearest")
 
     # best 2 from EN
     for num_days in [1, 8]:
@@ -526,7 +529,7 @@ def main():
     model = sklearn.linear_model.LinearRegression()
     cross_validate(dataset, model)
 
-    experiment_elastic_net(dataset, feature_importance=False)
+    experiment_elastic_net(dataset, feature_importance=True)
 
     experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
 
