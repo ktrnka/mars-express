@@ -1,0 +1,210 @@
+ACF    129564
+AAA    122315
+PSF    103114
+MMM     80989
+TTT     42324
+SSS     24959
+HHH     23985
+VVV     21851
+OOO     20385
+XXX      6518
+SXX      5000
+TMB      3922
+PWF      1995
+SEQ      1871
+DMC       689
+DMF       654
+BTT        64
+
+This is reduced just to the subsystem not the specific command.
+
+TTT_0 days 06:00:00           : 0.0004 over baseline
+AAA_0 days 06:00:00           : 0.0003 over baseline
+MMM_0 days 06:00:00           : 0.0002 over baseline
+ACF_0 days 06:00:00           : 0.0002 over baseline
+ACF_0 days 01:00:00           : 0.0002 over baseline
+ACF_0 days 00:30:00           : 0.0002 over baseline
+PWF_0 days 06:00:00           : 0.0002 over baseline
+TMB_0 days 06:00:00           : 0.0001 over baseline
+PSF_0 days 06:00:00           : 0.0001 over baseline
+TTT_0 days 01:00:00           : 0.0001 over baseline
+HHH_0 days 06:00:00           : 0.0001 over baseline
+AAA_0 days 01:00:00           : 0.0001 over baseline
+OOO_0 days 06:00:00           : 0.0001 over baseline
+SSS_0 days 06:00:00           : 0.0001 over baseline
+TTT_0 days 00:30:00           : 0.0001 over baseline
+VVV_0 days 06:00:00           : 0.0000 over baseline
+AAA_0 days 00:30:00           : 0.0000 over baseline
+PWF_0 days 01:00:00           : 0.0000 over baseline
+DMC_0 days 06:00:00           : 0.0000 over baseline
+PWF_0 days 00:30:00           : 0.0000 over baseline
+SXX_0 days 06:00:00           : 0.0000 over baseline
+TMB_0 days 01:00:00           : 0.0000 over baseline
+OOO_0 days 01:00:00           : 0.0000 over baseline
+XXX_0 days 06:00:00           : 0.0000 over baseline
+OOO_0 days 00:30:00           : 0.0000 over baseline
+TMB_0 days 00:30:00           : 0.0000 over baseline
+VVV_0 days 01:00:00           : 0.0000 over baseline
+SXX_0 days 01:00:00           : 0.0000 over baseline
+SXX_0 days 00:30:00           : 0.0000 over baseline
+SSS_0 days 01:00:00           : 0.0000 over baseline
+VVV_0 days 00:30:00           : 0.0000 over baseline
+HHH_0 days 01:00:00           : 0.0000 over baseline
+PSF_0 days 01:00:00           : 0.0000 over baseline
+SSS_0 days 00:30:00           : 0.0000 over baseline
+PSF_0 days 00:30:00           : 0.0000 over baseline
+HHH_0 days 00:30:00           : 0.0000 over baseline
+DMC_0 days 01:00:00           : 0.0000 over baseline
+DMC_0 days 00:30:00           : 0.0000 over baseline
+MMM_0 days 01:00:00           : 0.0000 over baseline
+MMM_0 days 00:30:00           : 0.0000 over baseline
+SEQ_0 days 06:00:00           : -0.0000 over baseline
+XXX_0 days 00:30:00           : -0.0000 over baseline
+XXX_0 days 01:00:00           : -0.0000 over baseline
+SEQ_0 days 00:30:00           : -0.0000 over baseline
+SEQ_0 days 01:00:00           : -0.0000 over baseline
+
+The unparsed DMOP commands:
+Trigger 853
+OBCPLCLPS 160
+OBCPLCLMI 141
+OBCPLCLSI 99
+OBCPLCLHR 79
+DISABTT_TRIGGERS 64
+OBCPLCLOM 48
+
+With mapo and the trigger/etc commands:
+TTT_0 days 06:00:00           : 0.0004 over baseline
+AAA_0 days 06:00:00           : 0.0003 over baseline
+PENS_0 days 06:00:00          : 0.0002 over baseline
+MMM_0 days 06:00:00           : 0.0002 over baseline
+PENE_0 days 06:00:00          : 0.0002 over baseline
+ACF_0 days 06:00:00           : 0.0002 over baseline
+ACF_0 days 01:00:00           : 0.0002 over baseline
+ACF_0 days 00:30:00           : 0.0002 over baseline
+PWF_0 days 06:00:00           : 0.0002 over baseline
+MOCS_0 days 06:00:00          : 0.0001 over baseline
+MOCE_0 days 06:00:00          : 0.0001 over baseline
+TMB_0 days 06:00:00           : 0.0001 over baseline
+PSF_0 days 06:00:00           : 0.0001 over baseline
+PENE_0 days 00:30:00          : 0.0001 over baseline
+PENE_0 days 01:00:00          : 0.0001 over baseline
+TTT_0 days 01:00:00           : 0.0001 over baseline
+PENS_0 days 01:00:00          : 0.0001 over baseline
+MOCE_0 days 01:00:00          : 0.0001 over baseline
+HHH_0 days 06:00:00           : 0.0001 over baseline
+MOCE_0 days 00:30:00          : 0.0001 over baseline
+AAA_0 days 01:00:00           : 0.0001 over baseline
+OOO_0 days 06:00:00           : 0.0001 over baseline
+SSS_0 days 06:00:00           : 0.0001 over baseline
+TTT_0 days 00:30:00           : 0.0001 over baseline
+MOCS_0 days 01:00:00          : 0.0001 over baseline
+VVV_0 days 06:00:00           : 0.0000 over baseline
+AAA_0 days 00:30:00           : 0.0000 over baseline
+PENS_0 days 00:30:00          : 0.0000 over baseline
+PWF_0 days 01:00:00           : 0.0000 over baseline
+DMC_0 days 06:00:00           : 0.0000 over baseline
+PWF_0 days 00:30:00           : 0.0000 over baseline
+SXX_0 days 06:00:00           : 0.0000 over baseline
+MOCS_0 days 00:30:00          : 0.0000 over baseline
+TMB_0 days 01:00:00           : 0.0000 over baseline
+OOO_0 days 01:00:00           : 0.0000 over baseline
+XXX_0 days 06:00:00           : 0.0000 over baseline
+OOO_0 days 00:30:00           : 0.0000 over baseline
+TMB_0 days 00:30:00           : 0.0000 over baseline
+VVV_0 days 01:00:00           : 0.0000 over baseline
+Trigger_0 days 06:00:00       : 0.0000 over baseline
+OBCPLCLPS_0 days 06:00:00     : 0.0000 over baseline
+OBCPLCLMI_0 days 06:00:00     : 0.0000 over baseline
+SXX_0 days 01:00:00           : 0.0000 over baseline
+SXX_0 days 00:30:00           : 0.0000 over baseline
+SSS_0 days 01:00:00           : 0.0000 over baseline
+VVV_0 days 00:30:00           : 0.0000 over baseline
+HHH_0 days 01:00:00           : 0.0000 over baseline
+PSF_0 days 01:00:00           : 0.0000 over baseline
+SSS_0 days 00:30:00           : 0.0000 over baseline
+MPER_0 days 06:00:00          : 0.0000 over baseline
+PSF_0 days 00:30:00           : 0.0000 over baseline
+OBCPLCLSI_0 days 06:00:00     : 0.0000 over baseline
+OBCPLCLHR_0 days 06:00:00     : 0.0000 over baseline
+Trigger_0 days 01:00:00       : 0.0000 over baseline
+HHH_0 days 00:30:00           : 0.0000 over baseline
+DMC_0 days 01:00:00           : 0.0000 over baseline
+Trigger_0 days 00:30:00       : 0.0000 over baseline
+DMC_0 days 00:30:00           : 0.0000 over baseline
+MMM_0 days 01:00:00           : 0.0000 over baseline
+OBCPLCLOM_0 days 06:00:00     : 0.0000 over baseline
+MPER_0 days 00:30:00          : 0.0000 over baseline
+OBCPLCLPS_0 days 01:00:00     : 0.0000 over baseline
+BTT_0 days 06:00:00           : 0.0000 over baseline
+OBCPLCLMI_0 days 01:00:00     : 0.0000 over baseline
+MMM_0 days 00:30:00           : 0.0000 over baseline
+OBCPLCLMI_0 days 00:30:00     : 0.0000 over baseline
+OBCPLCLPS_0 days 00:30:00     : 0.0000 over baseline
+MAPO_0 days 06:00:00          : 0.0000 over baseline
+MPER_0 days 01:00:00          : 0.0000 over baseline
+OBCPLCLSI_0 days 01:00:00     : 0.0000 over baseline
+OBCPLCLHR_0 days 01:00:00     : 0.0000 over baseline
+OBCPLCLSI_0 days 00:30:00     : 0.0000 over baseline
+OBCPLCLHR_0 days 00:30:00     : 0.0000 over baseline
+BTT_0 days 01:00:00           : 0.0000 over baseline
+OBCPLCLOM_0 days 01:00:00     : 0.0000 over baseline
+OBCPLCLOM_0 days 00:30:00     : 0.0000 over baseline
+SCMN_0 days 01:00:00          : 0.0000 over baseline
+BTT_0 days 00:30:00           : 0.0000 over baseline
+SCMN_0 days 00:30:00          : 0.0000 over baseline
+MAPO_0 days 00:30:00          : 0.0000 over baseline
+MAPO_0 days 01:00:00          : 0.0000 over baseline
+PPNE_0 days 06:00:00          : 0.0000 over baseline
+PPNS_0 days 06:00:00          : 0.0000 over baseline
+UPBE_0 days 06:00:00          : 0.0000 over baseline
+UPBS_0 days 06:00:00          : 0.0000 over baseline
+PPNE_0 days 01:00:00          : 0.0000 over baseline
+PPNS_0 days 01:00:00          : 0.0000 over baseline
+PPNE_0 days 00:30:00          : 0.0000 over baseline
+PPNS_0 days 00:30:00          : 0.0000 over baseline
+UDBS_0 days 06:00:00          : 0.0000 over baseline
+UDBE_0 days 06:00:00          : 0.0000 over baseline
+UPBE_0 days 00:30:00          : 0.0000 over baseline
+UPBE_0 days 01:00:00          : 0.0000 over baseline
+UPBS_0 days 00:30:00          : 0.0000 over baseline
+UPBS_0 days 01:00:00          : 0.0000 over baseline
+UDBE_0 days 00:30:00          : 0.0000 over baseline
+UDBS_0 days 00:30:00          : 0.0000 over baseline
+UDBE_0 days 01:00:00          : 0.0000 over baseline
+UDBS_0 days 01:00:00          : 0.0000 over baseline
+DMF_0 days 00:30:00           : 0.0000 over baseline
+DMF_0 days 06:00:00           : 0.0000 over baseline
+DMF_0 days 01:00:00           : 0.0000 over baseline
+PDNE_0 days 01:00:00          : -0.0000 over baseline
+PDNS_0 days 01:00:00          : -0.0000 over baseline
+PDNE_0 days 00:30:00          : -0.0000 over baseline
+PDNS_0 days 00:30:00          : -0.0000 over baseline
+SEQ_0 days 06:00:00           : -0.0000 over baseline
+PDNE_0 days 06:00:00          : -0.0000 over baseline
+PDNS_0 days 06:00:00          : -0.0000 over baseline
+XXX_0 days 00:30:00           : -0.0000 over baseline
+SCMN_0 days 06:00:00          : -0.0000 over baseline
+XXX_0 days 01:00:00           : -0.0000 over baseline
+SEQ_0 days 00:30:00           : -0.0000 over baseline
+SEQ_0 days 01:00:00           : -0.0000 over baseline
+
+With more time ranges:
+
+TTT_6.0h                      : 0.0004 over baseline
+PENS_48.0h                    : 0.0003 over baseline
+PENE_48.0h                    : 0.0003 over baseline
+AAA_6.0h                      : 0.0003 over baseline
+OOO_48.0h                     : 0.0003 over baseline
+ACF_48.0h                     : 0.0003 over baseline
+SSS_48.0h                     : 0.0002 over baseline
+MMM_48.0h                     : 0.0002 over baseline
+SXX_48.0h                     : 0.0002 over baseline
+PENS_6.0h                     : 0.0002 over baseline
+MOCS_48.0h                    : 0.0002 over baseline
+MOCE_48.0h                    : 0.0002 over baseline
+PWF_48.0h                     : 0.0002 over baseline
+AAA_48.0h                     : 0.0002 over baseline
+TTT_48.0h                     : 0.0002 over baseline
+
+
