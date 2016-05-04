@@ -129,6 +129,17 @@ def load_series(files, add_file_number=False, resample_interval=None, date_cols=
     return data
 
 
+def add_integrated_distance_feature(dataframe, feature, point, num_periods):
+    """Derive a feature with a simple function like log, sqrt, etc"""
+    assert isinstance(dataframe, pandas.DataFrame)
+    new_name = "{}_dist_from_{}_rolling{}".format(feature, point, num_periods)
+
+    transformed = (dataframe[feature] - point) ** -2
+    transformed = transformed.rolling(num_periods).mean().fillna(method="bfill")
+
+    dataframe[new_name] = transformed
+
+
 @helpers.general.Timed
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
     logger = helpers.general.get_function_logger()
@@ -158,6 +169,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
     add_lag_feature(event_sampled_df, "flagcomms", 12, "1h")
     add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
+    event_sampled_df.drop("flagcomms", axis=1, inplace=True)
 
     # select columns or take preselected ones
     for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK", "RADIO_SCIENCE"]:
@@ -165,6 +177,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         add_lag_feature(event_sampled_df, dest_name, 24, "2h")
+        event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     ### EVTF ###
     event_data = load_series(find_files(data_dir, "evtf"))
@@ -173,6 +186,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         dest_name = "EVTF_IN_" + event_name
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
+        event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
@@ -198,13 +212,11 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
     dmop_data = dmop_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
-    # dmop_data = dmop_data.resample("1H").count().reindex(data.index, method="nearest")
     add_lag_feature(dmop_data, "DMOP_event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(dmop_data, "DMOP_event_counts", 5, "5h", data_type=numpy.int64)
 
     ### SAAF ###
     saaf_data = load_series(find_files(data_dir, "saaf"))
-    # saaf_data = saaf_data.resample("1H").mean().reindex(data.index, method="nearest").interpolate()
     saaf_data = saaf_data.resample("30Min").mean().rolling(2).mean().interpolate().fillna(method="bfill").reindex(data.index, method="nearest")
 
     # best 2 from EN
@@ -225,6 +237,32 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
 
     if derived_features:
+        # add_lag_feature(data, "DMOP_MMMF01A0_under_0.5h_ago_rolling_1h", 800, "800")
+        # add_lag_feature(data, "DMOP_MMMF01A0_under_0.5h_ago_rolling_1h", 400, "400")
+        # add_transformation_feature(data, "DMOP_MMMF10A0_under_0.5h_ago_rolling_1h", "gradient")
+        # add_transformation_feature(data, "DMOP_event_counts_rolling_5h", "gradient")
+        # add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
+        # add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h", 1600, "1600")
+        # add_lag_feature(data, "EVTF_IN_MSL_/_RANGE_06000KM_rolling_1h", 50, "50")
+        # add_lag_feature(data, "EVTF_event_counts", 50, "50")
+        # add_lag_feature(data, "EVTF_event_counts", 400, "400")
+        # add_lag_feature(data, "EVTF_event_counts", 200, "200")
+        # add_lag_feature(data, "EVTF_event_counts", 100, "100")
+        # add_lag_feature(data, "EVTF_event_counts_rolling_5h", 200, "200")
+        # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 100, "100")
+        # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
+        # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 400, "400")
+        # add_transformation_feature(data, "FTL_EARTH_rolling_1h", "gradient")
+        # add_lag_feature(data, "FTL_NADIR_rolling_1h", 200, "200")
+        # add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
+        # add_lag_feature(data, "FTL_NADIR_rolling_1h", 800, "800")
+        # add_lag_feature(data, "sy", 100, "100")
+        # add_lag_feature(data, "sy", 800, "800")
+        #
+        # add_integrated_distance_feature(data, "sy", 90, 12)
+        # add_integrated_distance_feature(data, "sy", 45, 12)
+        # add_integrated_distance_feature(data, "sy", 120, 12)
+
         for col in [c for c in data.columns if "EVTF_IN_MRB" in c]:
             add_transformation_feature(data, col, "gradient")
         add_transformation_feature(data, "FTL_EARTH_rolling_1h", "gradient")
@@ -234,12 +272,12 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_transformation_feature(data, "sy", "log", drop=True)
         add_transformation_feature(data, "sa", "log", drop=True)
 
-        # various crazy rolling features
+        # # various crazy rolling features
         add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
         add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h", 1600, "1600")
         add_lag_feature(data, "EVTF_event_counts_rolling_5h", 50, "50")
-        add_lag_feature(data, "FTL_ACROSS_TRACK", 200, "200")
-        add_lag_feature(data, "FTL_NADIR", 400, "400")
+        add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
+        add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
 
     logger.info("DataFrame shape %s", data.shape)
     return data
@@ -311,7 +349,7 @@ def make_rnn(history_file=None, augment_output=False):
                                         input_noise=0.1,
                                         input_dropout=0.02,
                                         early_stopping=True,
-                                        recurrent_dropout=0.5,
+                                        recurrent_dropout=0.2,
                                         dropout=0.5,
                                         val=0.1,
                                         assert_finite=False,
@@ -332,15 +370,15 @@ def experiment_rnn(dataset, tune_params=False):
     if tune_params:
         hyperparams = {
             "learning_rate": helpers.sk.RandomizedSearchCV.uniform(5e-3, 5e-4),
-            "lr_decay": [0.999, 1]
+            "lr_decay": [0.999, 1],
             # "num_units": [25, 50, 100, 200],
             # "dropout": [0.5, 0.55, 0.6],
-            # "recurrent_dropout": [0.4, 0.5, 0.6],
+            "recurrent_dropout": [0.4, 0.5, 0.6],
             # "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 5e-4),
             # "time_steps": [4, 8, 16],
             # "input_dropout": [0.02, 0.04],
         }
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=3, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=5, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
 
         wrapped_model.fit(dataset.inputs, dataset.outputs)
         wrapped_model.print_tuning_scores()
@@ -351,7 +389,7 @@ def score_feature(X_train, Y_train, splits):
     X_train = scaler.fit_transform(X_train.values.reshape(-1, 1))
 
     model = sklearn.linear_model.LinearRegression()
-    return sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits).mean()
+    return -sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits).mean()
 
 
 def save_pairwise_score(name, X, Y, splits, threshold_score, feature_scores):
@@ -552,6 +590,7 @@ def experiment_elastic_net(dataset, feature_importance=True):
 
 def make_scaler():
     pipe = [("scaler", helpers.sk.ClippedRobustScaler())]
+    # pipe = [("scaler", sklearn.preprocessing.RobustScaler())]
 
     preprocessing_pipeline = sklearn.pipeline.Pipeline(pipe)
     return preprocessing_pipeline
