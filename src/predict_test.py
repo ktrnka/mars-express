@@ -21,12 +21,16 @@ def parse_args():
 def get_model(model_name):
     model_name = model_name.lower()
 
-    if model_name == "nn":
+    if model_name in {"nn", "mlp"}:
         return make_nn(history_file="nn_learning.csv")
     elif model_name == "rnn":
         return make_rnn(history_file="rnn_learning.csv")
     elif model_name == "blr":
         return make_blr()
+    elif model_name in {"elastic", "elasticnet", "en"}:
+        return sklearn.linear_model.ElasticNet(0.01)
+    elif model_name in {"rf", "randomforest", "forest"}:
+        return make_rf()
     else:
         raise ValueError("Unknown model abbreviation '{}'".format(model_name))
 
@@ -70,6 +74,16 @@ def save_history(model, output_file):
             print("Not saving model learning curve graph cause it doesn't exist")
 
 
+def predictions_in_training_range(Y_train, Y_pred):
+    """Fraction of predictions in the training data range (for testing regression interpolation vs extrapolation)"""
+    Y_min = Y_train.min(axis=0)
+    Y_max = Y_train.max(axis=0)
+
+    in_range = (Y_pred <= Y_max[numpy.newaxis, :]) & (Y_pred >= Y_min[numpy.newaxis, :])
+
+    return in_range.sum() / float(numpy.prod(Y_pred.shape))
+
+
 def predict_test_data(X_train, Y_train, scaler, args):
     # retrain baseline model as a sanity check
     baseline_model = sklearn.dummy.DummyRegressor("mean").fit(X_train, Y_train)
@@ -81,9 +95,11 @@ def predict_test_data(X_train, Y_train, scaler, args):
     X_test, Y_test = separate_output(test_data)
     X_test = scaler.transform(X_test)
 
-    test_data[Y_train.columns] = model.predict(X_test)
+    Y_pred = model.predict(X_test)
+    test_data[Y_train.columns] = Y_pred
 
     verify_predictions(X_test, baseline_model, model)
+    print("Percent of predictions in training data range: {:.2f}%".format(100. * predictions_in_training_range(Y_train, Y_pred)))
 
     if args.graph_dir:
         save_history(model, os.path.join(args.graph_dir, "learning_curve.png"))
