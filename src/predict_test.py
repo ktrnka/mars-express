@@ -2,7 +2,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 from helpers.general import with_num_features, with_date
-from helpers.sk import with_model_name
+from helpers.sk import with_model_name, predictions_in_training_range
 from train_test import *
 
 
@@ -74,16 +74,6 @@ def save_history(model, output_file):
             print("Not saving model learning curve graph cause it doesn't exist")
 
 
-def predictions_in_training_range(Y_train, Y_pred):
-    """Fraction of predictions in the training data range (for testing regression interpolation vs extrapolation)"""
-    Y_min = Y_train.min(axis=0)
-    Y_max = Y_train.max(axis=0)
-
-    in_range = (Y_pred <= Y_max[numpy.newaxis, :]) & (Y_pred >= Y_min[numpy.newaxis, :])
-
-    return in_range.sum() / float(numpy.prod(Y_pred.shape))
-
-
 def predict_test_data(X_train, Y_train, scaler, args):
     # retrain baseline model as a sanity check
     baseline_model = sklearn.dummy.DummyRegressor("mean").fit(X_train, Y_train)
@@ -111,19 +101,19 @@ def predict_test_data(X_train, Y_train, scaler, args):
 
 
 def verify_predictions(X_test, baseline_model, model):
-    baseline_predictions = baseline_model.predict(X_test)
-    predictions = model.predict(X_test)
+    Y_pred_baseline = baseline_model.predict(X_test)
+    Y_pred = model.predict(X_test)
 
-    deltas = numpy.abs(predictions - baseline_predictions) / numpy.abs(baseline_predictions)
+    deltas = numpy.abs(Y_pred - Y_pred_baseline) / numpy.abs(Y_pred_baseline)
     per_row = deltas.mean()
 
     unusual_rows = ~(per_row < 5)
     unusual_count = unusual_rows.sum()
     if unusual_count > 0:
-        print("{:.1f}% ({:,} / {:,}) of rows have unusual predictions:".format(100. * unusual_count / predictions.shape[0], unusual_count, predictions.shape[0]))
+        print("{:.1f}% ({:,} / {:,}) of rows have unusual predictions:".format(100. * unusual_count / Y_pred.shape[0], unusual_count, Y_pred.shape[0]))
 
         unusual_inputs = X_test[unusual_rows].reshape(-1, X_test.shape[1])
-        unusual_outputs = predictions[unusual_rows].reshape(-1, predictions.shape[1])
+        unusual_outputs = Y_pred[unusual_rows].reshape(-1, Y_pred.shape[1])
 
         for i in range(unusual_inputs.shape[0]):
             print(("Input: ", unusual_inputs[i]))
