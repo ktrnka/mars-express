@@ -31,7 +31,8 @@ import helpers.general
 import helpers.neural
 import helpers.sk
 from helpers.debug import verify_data
-from helpers.features import add_lag_feature, add_transformation_feature, get_event_series, TimeRange
+from helpers.features import add_lag_feature, add_transformation_feature, get_event_series, TimeRange, find_best_features, \
+    rfe_slow
 from helpers.sk import print_feature_importances, rms_error
 
 
@@ -77,7 +78,7 @@ def get_evtf_ranges(event_data, event_prefix):
 
 def get_dmop_subsystem(dmop_data):
     """Extract the subsystem from each record of the dmop data"""
-    dmop_subsys = dmop_data.subsystem.str.extract(r"A(?P<subsystem>\w{3}.*)", expand=False)
+    dmop_subsys = dmop_data.subsystem.str.extract(r"A(?P<subsystem>\w{3}).*", expand=False)
     dmop_subsys_mapo = dmop_data.subsystem.str.extract(r"(?P<subsystem>.+)\..+", expand=False)
 
     dmop_subsys.fillna(dmop_subsys_mapo, inplace=True)
@@ -139,6 +140,12 @@ def add_integrated_distance_feature(dataframe, feature, point, num_periods):
 
     dataframe[new_name] = transformed
 
+def time_since_last_event(event_data, index):
+    """Make a Series with the specified index that tracks time since the last event, backfilled with zero"""
+    event_dates = pandas.Series(index=event_data.index, data=event_data.index, name="date")
+    event_dates = event_dates.reindex(index, method="ffill")
+    deltas = event_dates.index - event_dates
+    return deltas.fillna(0).dt.total_seconds()
 
 @helpers.general.Timed
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
@@ -188,6 +195,10 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
+    event_sampled_df["EVTF_TIME_MRB_AOS_10"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_10"], event_sampled_df.index)
+    event_sampled_df["EVTF_TIME_MRB_AOS_00"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_00"], event_sampled_df.index)
+    event_sampled_df["EVTF_TIME_MSL_AOS_10"] = time_since_last_event(event_data[event_data.description == "MSL_AOS_10"], event_sampled_df.index)
+
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
     event_data["EVTF_event_counts"] = 1
@@ -201,13 +212,15 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     dmop_data = load_series(find_files(data_dir, "dmop"))
 
     dmop_subsystems = get_dmop_subsystem(dmop_data)
-    # These three were the only ones that had nonzero weights in elastic net when I tried with all over 1000 count
-    for subsys in "MMMF10A0 MMMF01A0 ACFE03A".split():
-        hours = 0.5
-        dest_name = "DMOP_{}_under_{}h_ago".format(subsys, hours)
-        event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_dmop_ranges(dmop_subsystems, subsys, hours))
-        add_lag_feature(event_sampled_df, dest_name, 12, "1h", drop=True)
 
+    # good ones from EN: SSSF06A0, ACFE03A, PSF32A1, MPER, MMMF19A0, MAPO, MMMF10A0, PSF38A1, PENS
+    # SSSF06A0 is a bit problematic because it just turns off in the third martian year
+    # SEQ has same problem, ACF is a bit sketchy, PWF is a bit sketchy, XXX might be sketchy
+    # full list: SEQ OOO ACF AAA PWF PSF VVV XXX SXX MAPO TMB MMM SSS MPER PENS TTT HHH MOCS PENE MOCE
+    # OOO ACF AAA
+    for subsys in "OOO ACF AAA PSF SXX MAPO MMM SSS MPER TTT PENE MOCE".split():
+        dest_name = "DMOP_time_since_{}".format(subsys)
+        event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
@@ -239,29 +252,6 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
 
     if derived_features:
-        # add_lag_feature(data, "DMOP_MMMF01A0_under_0.5h_ago_rolling_1h", 800, "800")
-        # add_lag_feature(data, "DMOP_MMMF01A0_under_0.5h_ago_rolling_1h", 400, "400")
-        # add_transformation_feature(data, "DMOP_MMMF10A0_under_0.5h_ago_rolling_1h", "gradient")
-        # add_transformation_feature(data, "DMOP_event_counts_rolling_5h", "gradient")
-        # add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
-        # add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h", 1600, "1600")
-        # add_lag_feature(data, "EVTF_IN_MSL_/_RANGE_06000KM_rolling_1h", 50, "50")
-        # add_lag_feature(data, "EVTF_event_counts", 50, "50")
-        # add_lag_feature(data, "EVTF_event_counts", 400, "400")
-        # add_lag_feature(data, "EVTF_event_counts", 200, "200")
-        # add_lag_feature(data, "EVTF_event_counts", 100, "100")
-        # add_lag_feature(data, "EVTF_event_counts_rolling_5h", 200, "200")
-        # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 100, "100")
-        # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
-        # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 400, "400")
-        # add_transformation_feature(data, "FTL_EARTH_rolling_1h", "gradient")
-        # add_lag_feature(data, "FTL_NADIR_rolling_1h", 200, "200")
-        # add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
-        # add_lag_feature(data, "FTL_NADIR_rolling_1h", 800, "800")
-        # add_lag_feature(data, "sy", 100, "100")
-        # add_lag_feature(data, "sy", 800, "800")
-        #
-
         # picked these by looking at 2010-10
         # add_integrated_distance_feature(data, "sz", 105, 4)
         # add_integrated_distance_feature(data, "sz", 120, 4)
@@ -280,16 +270,17 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_transformation_feature(data, "DMOP_event_counts", "log", drop=True)
         add_transformation_feature(data, "DMOP_event_counts_rolling_2h", "gradient", drop=True)
         add_transformation_feature(data, "occultationduration_min", "log", drop=True)
-        # add_transformation_feature(data, "sy", "log", drop=True)
         add_transformation_feature(data, "sa", "log", drop=True)
-        data.drop("sy", axis=1, inplace=True)
 
         # # various crazy rolling features
         add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
         add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h", 1600, "1600")
         add_lag_feature(data, "EVTF_event_counts_rolling_5h", 50, "50")
-        add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
+        # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
+        # add_transformation_feature(data, "earthmars_km", "square", drop=True)
+
+    data.drop(["sy"], axis=1, inplace=True)
 
     logger.info("DataFrame shape %s", data.shape)
     return data
@@ -578,6 +569,9 @@ def main():
 
     model = sklearn.linear_model.LinearRegression()
     cross_validate(dataset, model)
+
+    # rfe_slow(dataset, model, rms_error)
+    # find_best_features(dataset, model, rms_error)
 
     experiment_elastic_net(dataset, feature_importance=True)
 
