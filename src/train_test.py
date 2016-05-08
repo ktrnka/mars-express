@@ -40,6 +40,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--debug", default=False, action="store_true", help="Debug logging")
 
+    parser.add_argument("--time-steps", default=4, type=int, help="Number of time steps for recurrent/etc models")
     parser.add_argument("--verify", default=False, action="store_true", help="Run verifications on the input data for outliers and such")
 
     parser.add_argument("--feature-pairs", default=False, action="store_true", help="Try out pairs of features")
@@ -78,7 +79,7 @@ def get_evtf_ranges(event_data, event_prefix):
 
 def get_dmop_subsystem(dmop_data):
     """Extract the subsystem from each record of the dmop data"""
-    dmop_subsys = dmop_data.subsystem.str.extract(r"A(?P<subsystem>\w{3}).*", expand=False)
+    dmop_subsys = dmop_data.subsystem.str.extract(r"A(?P<subsystem>\w{3}.*)", expand=False)
     dmop_subsys_mapo = dmop_data.subsystem.str.extract(r"(?P<subsystem>.+)\..+", expand=False)
 
     dmop_subsys.fillna(dmop_subsys_mapo, inplace=True)
@@ -218,7 +219,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     # SEQ has same problem, ACF is a bit sketchy, PWF is a bit sketchy, XXX might be sketchy
     # full list: SEQ OOO ACF AAA PWF PSF VVV XXX SXX MAPO TMB MMM SSS MPER PENS TTT HHH MOCS PENE MOCE
     # OOO ACF AAA
-    for subsys in "OOO ACF AAA PSF SXX MAPO MMM SSS MPER TTT PENE MOCE".split():
+    # for subsys in "OOO ACF AAA PSF SXX MAPO MMM SSS MPER TTT PENE MOCE".split():
+    for subsys in dmop_subsystems.value_counts()[:100].index:
         dest_name = "DMOP_time_since_{}".format(subsys)
         event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
@@ -341,11 +343,11 @@ def experiment_neural_network(dataset, tune_params=False):
         wrapped_model.print_tuning_scores()
 
 
-def make_rnn(history_file=None, augment_output=False):
+def make_rnn(history_file=None, augment_output=False, time_steps=4):
     """Make a recurrent neural network with reasonable default args for this task"""
     model = helpers.neural.RnnRegressor(learning_rate=2e-3,
                                         num_units=50,
-                                        time_steps=4,
+                                        time_steps=time_steps,
                                         batch_size=256,
                                         num_epochs=1000,
                                         verbose=0,
@@ -366,18 +368,17 @@ def make_rnn(history_file=None, augment_output=False):
 
 
 @helpers.general.Timed
-def experiment_rnn(dataset, tune_params=False):
-    model = make_rnn()
+def experiment_rnn(dataset, tune_params=False, time_steps=4):
+    model = make_rnn(time_steps=time_steps)
     cross_validate(dataset, model)
 
     if tune_params:
         hyperparams = {
-            # "learning_rate": helpers.sk.RandomizedSearchCV.uniform(5e-3, 5e-4),
-            # "lr_decay": [0.999, 1],
+            "learning_rate": helpers.sk.RandomizedSearchCV.uniform(5e-3, 5e-4),
+            "lr_decay": [0.999, 1],
             # "num_units": [25, 50, 100, 200],
-            # "dropout": [0.5, 0.55, 0.6],
+            "dropout": helpers.sk.RandomizedSearchCV.uniform(0.35, 0.65),
             "recurrent_dropout": helpers.sk.RandomizedSearchCV.uniform(0.2, 0.7),
-            # "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 5e-4),
             # "time_steps": [4, 8, 16],
             # "input_dropout": [0.02, 0.04],
         }
@@ -570,14 +571,14 @@ def main():
     model = sklearn.linear_model.LinearRegression()
     cross_validate(dataset, model)
 
-    # rfe_slow(dataset, model, rms_error)
-    # find_best_features(dataset, model, rms_error)
+    if args.extra_analysis:
+        rfe_slow(dataset, model, rms_error)
 
     experiment_elastic_net(dataset, feature_importance=True)
 
-    experiment_neural_network(dataset, tune_params=True and args.analyse_hyperparameters)
+    experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
 
-    experiment_rnn(dataset, tune_params=False and args.analyse_hyperparameters)
+    experiment_rnn(dataset, tune_params=True and args.analyse_hyperparameters, time_steps=args.time_steps)
 
 
 def experiment_elastic_net(dataset, feature_importance=True):
