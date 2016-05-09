@@ -79,7 +79,7 @@ def get_evtf_ranges(event_data, event_prefix):
 
 def get_dmop_subsystem(dmop_data):
     """Extract the subsystem from each record of the dmop data"""
-    dmop_subsys = dmop_data.subsystem.str.extract(r"A(?P<subsystem>\w{3}.*)", expand=False)
+    dmop_subsys = dmop_data.subsystem.str.extract(r"A(?P<subsystem>\w{3}).*", expand=False)
     dmop_subsys_mapo = dmop_data.subsystem.str.extract(r"(?P<subsystem>.+)\..+", expand=False)
 
     dmop_subsys.fillna(dmop_subsys_mapo, inplace=True)
@@ -219,8 +219,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     # SEQ has same problem, ACF is a bit sketchy, PWF is a bit sketchy, XXX might be sketchy
     # full list: SEQ OOO ACF AAA PWF PSF VVV XXX SXX MAPO TMB MMM SSS MPER PENS TTT HHH MOCS PENE MOCE
     # OOO ACF AAA
-    # for subsys in "OOO ACF AAA PSF SXX MAPO MMM SSS MPER TTT PENE MOCE".split():
-    for subsys in dmop_subsystems.value_counts()[:100].index:
+    for subsys in "OOO ACF AAA PSF SXX MAPO MMM SSS MPER TTT PENE MOCE".split():
+    # for subsys in dmop_subsystems.value_counts()[:100].index:
         dest_name = "DMOP_time_since_{}".format(subsys)
         event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
@@ -273,6 +273,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_transformation_feature(data, "DMOP_event_counts_rolling_2h", "gradient", drop=True)
         add_transformation_feature(data, "occultationduration_min", "log", drop=True)
         add_transformation_feature(data, "sa", "log", drop=True)
+        add_transformation_feature(data, "sy", "log", drop=True)
 
         # # various crazy rolling features
         add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
@@ -282,7 +283,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
         # add_transformation_feature(data, "earthmars_km", "square", drop=True)
 
-    data.drop(["sy"], axis=1, inplace=True)
+    # data.drop(["sy"], axis=1, inplace=True)
 
     logger.info("DataFrame shape %s", data.shape)
     return data
@@ -345,7 +346,7 @@ def experiment_neural_network(dataset, tune_params=False):
 
 def make_rnn(history_file=None, augment_output=False, time_steps=4):
     """Make a recurrent neural network with reasonable default args for this task"""
-    model = helpers.neural.RnnRegressor(learning_rate=2e-3,
+    model = helpers.neural.RnnRegressor(learning_rate=7e-4,
                                         num_units=50,
                                         time_steps=time_steps,
                                         batch_size=256,
@@ -354,7 +355,7 @@ def make_rnn(history_file=None, augment_output=False, time_steps=4):
                                         input_noise=0.1,
                                         input_dropout=0.02,
                                         early_stopping=True,
-                                        recurrent_dropout=0.6,
+                                        recurrent_dropout=0.65,
                                         dropout=0.5,
                                         val=0.1,
                                         assert_finite=False,
@@ -382,7 +383,7 @@ def experiment_rnn(dataset, tune_params=False, time_steps=4):
             # "time_steps": [4, 8, 16],
             # "input_dropout": [0.02, 0.04],
         }
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=5, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=4, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
 
         wrapped_model.fit(dataset.inputs, dataset.outputs)
         wrapped_model.print_tuning_scores()
