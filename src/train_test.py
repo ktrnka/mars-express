@@ -507,6 +507,15 @@ def experiment_rnn_longer(dataset):
 
     sys.exit(0)
 
+def experiment_mlp_clones(dataset, n=2):
+    print("Baseline MLP")
+    cross_validate(dataset, make_nn())
+
+    print("Ensemble of {} MLP".format(n))
+    model = helpers.sk.AverageClonedRegressor(make_nn(), n)
+    cross_validate(dataset, model)
+
+    sys.exit(0)
 
 def experiment_rnn_stateful(dataset):
     model = make_rnn()
@@ -575,7 +584,9 @@ def main():
     if args.extra_analysis:
         rfe_slow(dataset, model, rms_error)
 
-    experiment_elastic_net(dataset, feature_importance=True)
+    experiment_elastic_net(dataset, feature_importance=False)
+
+    experiment_mlp_clones(dataset)
 
     experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
 
