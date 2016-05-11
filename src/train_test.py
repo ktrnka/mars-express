@@ -6,13 +6,10 @@ import collections
 import logging
 import os
 import sys
-from operator import itemgetter
 from pprint import pprint
 
 import numpy
 import pandas
-import scipy.optimize
-import scipy.stats
 import sklearn
 import sklearn.cross_validation
 import sklearn.decomposition
@@ -31,8 +28,8 @@ import helpers.general
 import helpers.neural
 import helpers.sk
 from helpers.debug import verify_data
-from helpers.features import add_lag_feature, add_transformation_feature, get_event_series, TimeRange, rfe_slow
-from helpers.sk import print_feature_importances, rms_error
+from helpers.features import add_lag_feature, add_transformation_feature, get_event_series, TimeRange
+from helpers.sk import rms_error
 
 
 def parse_args():
@@ -163,7 +160,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     ### LTDATA ###
     longterm_data = load_series(find_files(data_dir, "ltdata"))
 
-    # as far as I can tell this doesn't make a difference
+    # as far as I can tell this doesn't make a difference but it makes me feel better
     longterm_data = longterm_data.resample("1H").mean().interpolate().fillna(method="backfill")
 
     # time-lagged version
@@ -202,7 +199,6 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
     event_data["EVTF_event_counts"] = 1
-    # event_data = event_data.resample("1H").count().reindex(data.index, method="nearest")
     event_data = event_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
     event_data["EVTF_altitude"] = altitude_series
     add_lag_feature(event_data, "EVTF_event_counts", 2, "2h", data_type=numpy.int64)
@@ -213,13 +209,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     dmop_subsystems = get_dmop_subsystem(dmop_data)
 
-    # good ones from EN: SSSF06A0, ACFE03A, PSF32A1, MPER, MMMF19A0, MAPO, MMMF10A0, PSF38A1, PENS
-    # SSSF06A0 is a bit problematic because it just turns off in the third martian year
-    # SEQ has same problem, ACF is a bit sketchy, PWF is a bit sketchy, XXX might be sketchy
-    # full list: SEQ OOO ACF AAA PWF PSF VVV XXX SXX MAPO TMB MMM SSS MPER PENS TTT HHH MOCS PENE MOCE
-    # OOO ACF AAA
+    # these subsystems were found partly by trial and error
     for subsys in "OOO ACF AAA PSF SXX MAPO MMM SSS MPER TTT PENE MOCE".split():
-    # for subsys in dmop_subsystems.value_counts()[:100].index:
         dest_name = "DMOP_time_since_{}".format(subsys)
         event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
@@ -280,9 +271,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(data, "EVTF_event_counts_rolling_5h", 50, "50")
         # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
-        # add_transformation_feature(data, "earthmars_km", "square", drop=True)
 
-    # data.drop(["sy"], axis=1, inplace=True)
 
     logger.info("DataFrame shape %s", data.shape)
     return data
@@ -388,154 +377,6 @@ def experiment_rnn(dataset, tune_params=False, time_steps=4):
         wrapped_model.print_tuning_scores()
 
 
-def score_feature(X_train, Y_train, splits):
-    scaler = sklearn.preprocessing.RobustScaler()
-    X_train = scaler.fit_transform(X_train.values.reshape(-1, 1))
-
-    model = sklearn.linear_model.LinearRegression()
-    return -sklearn.cross_validation.cross_val_score(model, X_train, Y_train, scoring=rms_error, cv=splits).mean()
-
-
-def save_pairwise_score(name, X, Y, splits, threshold_score, feature_scores):
-    score = score_feature(X, Y, splits)
-
-    # only log 5% improvement or more
-    if (threshold_score - score) / threshold_score > 0.05:
-        feature_scores[name] = score
-
-
-def experiment_pairwise_features(X_train, Y_train, splits):
-    # TODO: redo this as a single ElasticNet
-    # assume that they're unscaled
-    feature_scores = collections.Counter()
-
-    # indep feature scores
-    for a in X_train.columns:
-        feature_scores[a] = score_feature(X_train[a], Y_train, splits)
-
-    # pairwise feature scores
-    for i, a in enumerate(X_train.columns):
-        for b in X_train.columns[i:]:
-            threshold_score = min(feature_scores[a], feature_scores[b])
-
-            save_pairwise_score("{} * {}".format(a, b), X_train[a] * X_train[b], Y_train, splits, threshold_score, feature_scores)
-
-            if a != b:
-                if sum(X_train[b] == 0) == 0:
-                    save_pairwise_score("{} / {}".format(a, b), X_train[a] / X_train[b], Y_train, splits, threshold_score, feature_scores)
-            save_pairwise_score("{} + {}".format(a, b), X_train[a] + X_train[b], Y_train, splits, threshold_score, feature_scores)
-            save_pairwise_score("{} - {}".format(a, b), X_train[a] - X_train[b], Y_train, splits, threshold_score, feature_scores)
-
-    print("Feature correlations")
-    for feature, mse in sorted(feature_scores.items(), key=itemgetter(1)):
-        print("\t{}: {:.4f}".format(feature, mse))
-
-
-def experiment_learning_rate_schedule(dataset):
-    model = make_nn()
-    model.val = 0.1
-
-    # base = no schedule
-    print("Baseline NN")
-    model.history_file = "nn_default.csv"
-    model.fit(dataset.inputs, dataset.outputs)
-
-    # higher init, decay set to reach the same at 40 epochs
-    model.schedule = helpers.neural.make_learning_rate_schedule(model.learning_rate, exponential_decay=0.94406087628)
-    print("NN with decay")
-    model.history_file = "nn_decay.csv"
-    model.fit(dataset.inputs, dataset.outputs)
-
-    model.schedule = None
-    model.extra_callback = helpers.neural.AdaptiveLearningRateScheduler(model.learning_rate, monitor="val_loss", scale=1.1, window=5)
-    print("NN with variance schedule")
-    model.history_file = "nn_variance_schedule.csv"
-    model.fit(dataset.inputs, dataset.outputs)
-
-    sys.exit(0)
-
-
-def experiment_output_augmentation(dataset):
-    model = make_nn()
-
-    cross_validate(dataset, model)
-    cross_validate(dataset, helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean()))
-
-    sys.exit(0)
-
-
-def experiment_rnn_elu(dataset):
-    model = helpers.neural.RnnRegressor(learning_rate=1e-3,
-                                        num_units=50,
-                                        time_steps=3,
-                                        batch_size=64,
-                                        num_epochs=500,
-                                        verbose=0,
-                                        input_noise=0.1,
-                                        input_dropout=0.02,
-                                        early_stopping=True,
-                                        recurrent_dropout=0.5,
-                                        dropout=0.5,
-                                        val=0.1,
-                                        assert_finite=False,
-                                        activation="elu",
-                                        pretrain=True)
-
-    print("RNN with followup ELU layer")
-    hyperparams = {
-        "hidden_layer_sizes": [(50,), (75,), (100,), (200,)],
-        "dropout": [0.25, 0.5, .75]
-    }
-
-    wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error, cv=dataset.splits, refit=False)
-
-    wrapped_model.fit(dataset.inputs, dataset.outputs)
-    wrapped_model.print_tuning_scores()
-
-    sys.exit(0)
-
-
-def experiment_rnn_longer(dataset):
-    model = make_rnn()
-
-    time = 10
-    print("RNN time ", time)
-    model.time_steps = time
-    model.num_epochs = 1000
-    cross_validate(dataset, model)
-
-    sys.exit(0)
-
-def experiment_mlp_clones(dataset, n=2):
-    print("Baseline RNN")
-    cross_validate(dataset, make_rnn())
-
-    print("Ensemble of {}".format(n))
-    model = helpers.sk.AverageClonedRegressor(make_rnn(), n)
-    cross_validate(dataset, model)
-
-    sys.exit(0)
-
-def experiment_rnn_stateful(dataset):
-    model = make_rnn()
-    model.batch_size = 4
-    model.time_steps = 4
-    model.val = 0
-    # model.verbose = 1
-    model.pretrain = False
-    model.early_stopping = False
-    model.num_epochs = 300
-
-    print("RNN baseline")
-    cross_validate(dataset, model)
-
-    print("RNN stateful")
-    model.stateful = True
-    cross_validate(dataset, model)
-
-    sys.exit(0)
-
-
 def main():
     args = parse_args()
 
@@ -544,6 +385,23 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO)
 
+    dataset = load_split_data(args)
+
+    baseline_model = sklearn.dummy.DummyRegressor("mean")
+    cross_validate(dataset, baseline_model)
+
+    model = sklearn.linear_model.LinearRegression()
+    cross_validate(dataset, model)
+
+    experiment_elastic_net(dataset, feature_importance=False)
+
+    experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
+
+    experiment_rnn(dataset, tune_params=True and args.analyse_hyperparameters, time_steps=args.time_steps)
+
+
+def load_split_data(args):
+    """Load the data, compute cross-validation splits, scale the inputs, etc. Returns a DataSet object"""
     train_data = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     # cross validation by year
@@ -553,7 +411,6 @@ def main():
 
     # just use the biggest one for now
     X_train, Y_train = separate_output(train_data)
-
     if args.verify:
         verify_data(X_train, Y_train, None)
 
@@ -562,11 +419,7 @@ def main():
         print(X_train.describe())
         compute_upper_bounds(train_data)
 
-    if args.feature_pairs:
-        experiment_pairwise_features(X_train, Y_train, splits)
-
     scaler = make_scaler()
-
     feature_names = X_train.columns
     X_train = scaler.fit_transform(X_train)
 
@@ -575,27 +428,7 @@ def main():
     Y_train = Y_train.values
 
     dataset = helpers.general.DataSet(X_train, Y_train, splits, feature_names, output_names, output_index)
-
-    baseline_model = sklearn.dummy.DummyRegressor("mean")
-    cross_validate(dataset, baseline_model)
-
-    model = sklearn.linear_model.LinearRegression()
-    cross_validate(dataset, model)
-
-    if args.extra_analysis:
-        rfe_slow(dataset, model, rms_error)
-
-    experiment_elastic_net(dataset, feature_importance=False)
-
-    experiment_superclips(dataset, args.training_dir)
-
-    # experiment_cross_validation_graph(dataset)
-    #
-    # experiment_mlp_clones(dataset)
-
-    experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
-
-    experiment_rnn(dataset, tune_params=True and args.analyse_hyperparameters, time_steps=args.time_steps)
+    return dataset
 
 
 def experiment_elastic_net(dataset, feature_importance=True):
@@ -643,53 +476,6 @@ def experiment_bagged_linear_regression(dataset, tune_params=False):
         model.print_tuning_scores()
 
 
-@helpers.general.Timed
-def experiment_output_transform(dataset):
-    base_model = make_rnn()
-    cross_validate(dataset, base_model)
-
-    # plain mean
-    print("With mean of outputs")
-    output_transformer = helpers.sk.QuickTransform.make_append_mean()
-    model = helpers.sk.OutputTransformation(base_model, output_transformer)
-    cross_validate(dataset, model)
-
-    # with time-delayed mean
-    print("With time-delay of 7")
-    output_transformer = helpers.sk.QuickTransform.make_append_rolling(7)
-    model = helpers.sk.OutputTransformation(base_model, output_transformer)
-    cross_validate(dataset, model)
-
-    sys.exit(0)
-
-
-def experiment_clip_mlp(dataset):
-    print("Baseline")
-    cross_validate(dataset, make_rnn())
-
-    print("With nonzero clip")
-    cross_validate(dataset, helpers.sk.OutputTransformation(make_rnn(), helpers.sk.QuickTransform.make_non_negative()))
-
-    sys.exit(0)
-
-def experiment_superclips(dataset, data_dir):
-    unsampled_outputs = load_series(find_files(data_dir, "power")).dropna()
-    clipper = helpers.sk.OutputClippedTransform().fit(unsampled_outputs.values)
-
-    model = make_nn()
-
-    print("Baseline")
-    cross_validate(dataset, model)
-
-    print("With nonzero clip")
-    cross_validate(dataset, helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_non_negative()))
-
-    print("With range clip on unsampled data")
-    cross_validate(dataset, helpers.sk.OutputTransformation(model, clipper))
-
-    sys.exit(0)
-
-
 def make_rf():
     """Make a random forest model with reasonable default args"""
     return sklearn.ensemble.RandomForestRegressor(25, min_samples_leaf=35, max_depth=34, max_features=20)
@@ -698,32 +484,6 @@ def make_rf():
 def cross_validate(dataset, model, n_jobs=1):
     scores = sklearn.cross_validation.cross_val_score(model, dataset.inputs, dataset.outputs, scoring=rms_error, cv=dataset.splits, n_jobs=n_jobs)
     print("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
-
-
-def cv_graph(dataset, model, graph_filename):
-    predictions = sklearn.cross_validation.cross_val_predict(model, dataset.inputs, dataset.outputs, cv=dataset.splits)
-
-    # pick a few outputs
-    target_df = pandas.DataFrame(data=dataset.outputs, columns=dataset.target_names, index=dataset.output_index)
-    pred_df = pandas.DataFrame(data=predictions, columns=dataset.target_names, index=dataset.output_index)
-
-    scores = collections.Counter({col: target_df[col].mean() + target_df[col].std() for col in target_df.columns})
-    cols = [col for col, _ in scores.most_common(5)]
-
-    for resample in [None, "6H", "1D"]:
-        sampled_df = target_df[cols]
-        if resample:
-            sampled_df = sampled_df.resample(resample).mean()
-        axes = sampled_df.plot(figsize=(16, 9), ylim=(0, 2))
-        axes.set_title("Top few targets")
-        axes.get_figure().savefig(helpers.general._with_extra(helpers.general._with_extra(graph_filename, "targets"), "resample{}".format(resample)), dpi=300)
-
-        sampled_df = pred_df[cols]
-        if resample:
-            sampled_df = sampled_df.resample(resample).mean()
-        axes = sampled_df.plot(figsize=(16, 9), ylim=(0, 2))
-        axes.set_title("Top predictions")
-        axes.get_figure().savefig(helpers.general._with_extra(helpers.sk.with_model_name(graph_filename, model, snake_case=True), "resample{}".format(resample)), dpi=300)
 
 
 def separate_output(df, num_outputs=None):
@@ -739,11 +499,6 @@ def separate_output(df, num_outputs=None):
     logger.info("X, Y shapes %s %s", X.shape, Y.shape)
     return X, Y
 
-
-def experiment_cross_validation_graph(dataset):
-    cv_graph(dataset, make_nn(), "power.png")
-
-    sys.exit(0)
 
 if __name__ == "__main__":
     sys.exit(main())
