@@ -33,11 +33,10 @@ def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
-    test_output_clipping(dataset, args.training_dir)
 
+    test_time_onestep(dataset)
 
-if __name__ == "__main__":
-    sys.exit(main())
+    # test_output_clipping(dataset, args.training_dir)
 
 
 def test_schedules(dataset):
@@ -131,7 +130,7 @@ def test_output_clipping(dataset, data_dir):
     unsampled_outputs = load_series(find_files(data_dir, "power")).dropna()
     clipper = helpers.sk.OutputClippedTransform().fit(unsampled_outputs.values)
 
-    model = make_nn()
+    model = sklearn.linear_model.ElasticNet(0.01)
 
     print("Baseline")
     cross_validate(dataset, model)
@@ -141,6 +140,31 @@ def test_output_clipping(dataset, data_dir):
 
     print("With range clip on unsampled data")
     cross_validate(dataset, helpers.sk.OutputTransformation(model, clipper))
+
+    # try with basic randomsearch
+    params = {
+        "estimator__alpha": helpers.sk.RandomizedSearchCV.exponential(0.05, 0.005)
+    }
+    wrapped_model = helpers.sk.OutputTransformation(model, clipper)
+    print(wrapped_model.get_params().keys())
+    search_model = helpers.sk.RandomizedSearchCV(wrapped_model, params, n_iter=5, n_jobs=1, cv=dataset.splits, scoring=rms_error)
+
+    search_model.fit(dataset.inputs, dataset.outputs)
+    search_model.print_tuning_scores()
+
+    # # try elastic net cv out of curiosity
+    # print("Range clip again")
+    # cross_validate(dataset, helpers.sk.OutputTransformation(sklearn.linear_model.MultiTaskElasticNetCV(), clipper))
+
+def test_time_onestep(dataset):
+    # base estimator
+    model = make_nn()
+
+    print("Baseline")
+    cross_validate(dataset, model)
+
+    time_model = helpers.sk.DeltaSumRegressor(model, num_rolls=2)
+    cross_validate(dataset, time_model)
 
 
 def test_output_augmentations(dataset):
@@ -201,3 +225,6 @@ def experiment_pairwise_features(X_train, Y_train, splits):
     print("Feature correlations")
     for feature, mse in sorted(feature_scores.items(), key=itemgetter(1)):
         print("\t{}: {:.4f}".format(feature, mse))
+
+if __name__ == "__main__":
+    sys.exit(main())

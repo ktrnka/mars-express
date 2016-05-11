@@ -111,11 +111,14 @@ def get_ftl_periods(ftl_slice):
         yield TimeRange(row[0], row[1])
 
 
-def load_series(files, add_file_number=False, resample_interval=None, date_cols=True):
+def load_series(files, add_file_number=False, resample_interval=None, roll_mean_window=None, date_cols=True):
     data = [pandas.read_csv(f, parse_dates=date_cols, date_parser=parse_dates, index_col=0) for f in files]
 
     if resample_interval:
         data = [d.resample(resample_interval).mean() for d in data]
+
+    if roll_mean_window:
+        data = [d.rolling(window=roll_mean_window, min_periods=1).mean() for d in data]
 
     if add_file_number:
         for i, year_data in enumerate(data):
