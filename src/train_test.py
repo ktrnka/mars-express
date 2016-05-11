@@ -31,8 +31,7 @@ import helpers.general
 import helpers.neural
 import helpers.sk
 from helpers.debug import verify_data
-from helpers.features import add_lag_feature, add_transformation_feature, get_event_series, TimeRange, find_best_features, \
-    rfe_slow
+from helpers.features import add_lag_feature, add_transformation_feature, get_event_series, TimeRange, rfe_slow
 from helpers.sk import print_feature_importances, rms_error
 
 
@@ -694,26 +693,6 @@ def experiment_superclips(dataset, data_dir):
 def make_rf():
     """Make a random forest model with reasonable default args"""
     return sklearn.ensemble.RandomForestRegressor(25, min_samples_leaf=35, max_depth=34, max_features=20)
-
-
-@helpers.general.Timed
-def experiment_random_forest(X_train, Y_train, args, feature_names, splits, tune_params=False):
-    model = make_rf()
-    cross_validate(X_train, Y_train, model, splits)
-
-    if args.analyse_hyperparameters and tune_params:
-        rf_hyperparams = {
-            "min_samples_leaf": scipy.stats.randint(10, 100),
-            "max_depth": scipy.stats.randint(5, X_train.shape[1]),
-            "max_features": scipy.stats.randint(8, X_train.shape[1]),
-            "n_estimators": scipy.stats.randint(20, 30)
-        }
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, rf_hyperparams, n_iter=10, n_jobs=3, scoring=rms_error)
-        wrapped_model.fit(X_train, Y_train)
-        wrapped_model.print_tuning_scores()
-
-        if args.analyse_feature_importance:
-            print_feature_importances(feature_names, model.best_estimator_)
 
 
 def cross_validate(dataset, model, n_jobs=1):
