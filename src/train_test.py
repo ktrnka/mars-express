@@ -508,11 +508,11 @@ def experiment_rnn_longer(dataset):
     sys.exit(0)
 
 def experiment_mlp_clones(dataset, n=2):
-    print("Baseline MLP")
-    cross_validate(dataset, make_nn())
+    print("Baseline RNN")
+    cross_validate(dataset, make_rnn())
 
-    print("Ensemble of {} MLP".format(n))
-    model = helpers.sk.AverageClonedRegressor(make_nn(), n)
+    print("Ensemble of {}".format(n))
+    model = helpers.sk.AverageClonedRegressor(make_rnn(), n)
     cross_validate(dataset, model)
 
     sys.exit(0)
@@ -571,9 +571,11 @@ def main():
     feature_names = X_train.columns
     X_train = scaler.fit_transform(X_train)
 
+    output_names = Y_train.columns
+    output_index = Y_train.index
     Y_train = Y_train.values
 
-    dataset = helpers.general.DataSet(X_train, Y_train, splits, feature_names)
+    dataset = helpers.general.DataSet(X_train, Y_train, splits, feature_names, output_names, output_index)
 
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(dataset, baseline_model)
@@ -586,7 +588,11 @@ def main():
 
     experiment_elastic_net(dataset, feature_importance=False)
 
-    experiment_mlp_clones(dataset)
+    experiment_superclips(dataset, args.training_dir)
+
+    # experiment_cross_validation_graph(dataset)
+    #
+    # experiment_mlp_clones(dataset)
 
     experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
 
@@ -658,6 +664,33 @@ def experiment_output_transform(dataset):
     sys.exit(0)
 
 
+def experiment_clip_mlp(dataset):
+    print("Baseline")
+    cross_validate(dataset, make_rnn())
+
+    print("With nonzero clip")
+    cross_validate(dataset, helpers.sk.OutputTransformation(make_rnn(), helpers.sk.QuickTransform.make_non_negative()))
+
+    sys.exit(0)
+
+def experiment_superclips(dataset, data_dir):
+    unsampled_outputs = load_series(find_files(data_dir, "power")).dropna()
+    clipper = helpers.sk.OutputClippedTransform().fit(unsampled_outputs.values)
+
+    model = make_nn()
+
+    print("Baseline")
+    cross_validate(dataset, model)
+
+    print("With nonzero clip")
+    cross_validate(dataset, helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_non_negative()))
+
+    print("With range clip on unsampled data")
+    cross_validate(dataset, helpers.sk.OutputTransformation(model, clipper))
+
+    sys.exit(0)
+
+
 def make_rf():
     """Make a random forest model with reasonable default args"""
     return sklearn.ensemble.RandomForestRegressor(25, min_samples_leaf=35, max_depth=34, max_features=20)
@@ -688,6 +721,32 @@ def cross_validate(dataset, model, n_jobs=1):
     print("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
 
 
+def cv_graph(dataset, model, graph_filename):
+    predictions = sklearn.cross_validation.cross_val_predict(model, dataset.inputs, dataset.outputs, cv=dataset.splits)
+
+    # pick a few outputs
+    target_df = pandas.DataFrame(data=dataset.outputs, columns=dataset.target_names, index=dataset.output_index)
+    pred_df = pandas.DataFrame(data=predictions, columns=dataset.target_names, index=dataset.output_index)
+
+    scores = collections.Counter({col: target_df[col].mean() + target_df[col].std() for col in target_df.columns})
+    cols = [col for col, _ in scores.most_common(5)]
+
+    for resample in [None, "6H", "1D"]:
+        sampled_df = target_df[cols]
+        if resample:
+            sampled_df = sampled_df.resample(resample).mean()
+        axes = sampled_df.plot(figsize=(16, 9), ylim=(0, 2))
+        axes.set_title("Top few targets")
+        axes.get_figure().savefig(helpers.general._with_extra(helpers.general._with_extra(graph_filename, "targets"), "resample{}".format(resample)), dpi=300)
+
+        sampled_df = pred_df[cols]
+        if resample:
+            sampled_df = sampled_df.resample(resample).mean()
+        axes = sampled_df.plot(figsize=(16, 9), ylim=(0, 2))
+        axes.set_title("Top predictions")
+        axes.get_figure().savefig(helpers.general._with_extra(helpers.sk.with_model_name(graph_filename, model, snake_case=True), "resample{}".format(resample)), dpi=300)
+
+
 def separate_output(df, num_outputs=None):
     logger = helpers.general.get_function_logger()
     df = df.drop("file_number", axis=1)
@@ -701,6 +760,11 @@ def separate_output(df, num_outputs=None):
     logger.info("X, Y shapes %s %s", X.shape, Y.shape)
     return X, Y
 
+
+def experiment_cross_validation_graph(dataset):
+    cv_graph(dataset, make_nn(), "power.png")
+
+    sys.exit(0)
 
 if __name__ == "__main__":
     sys.exit(main())

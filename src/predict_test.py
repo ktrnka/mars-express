@@ -122,6 +122,8 @@ def verify_predictions(X_test, baseline_model, model):
     overall_delta = per_row.mean()
     print("Average percent change from baseline predictions: {:.2f}%".format(100. * overall_delta))
 
+    print("Percent predictions below zero: ", 100 * (Y_pred < 0).mean())
+
     # assert overall_delta < 2
 
 
