@@ -290,7 +290,7 @@ def compute_upper_bounds(dataframe):
         print("RMS with {} approximation: {:.3f}".format(interval, helpers.sk._rms_error(dataframe, upsampled_data)))
 
 
-def make_nn(history_file=None):
+def make_nn(history_file=None, add_clipper=True):
     """Make a plain neural network with reasonable default args"""
 
     model = helpers.neural.NnRegressor(num_epochs=500,
@@ -308,6 +308,11 @@ def make_nn(history_file=None):
                                        history_file=history_file,
                                        lr_decay=0.99,
                                        assert_finite=False)
+
+    model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
+
+    if add_clipper:
+        model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_non_negative())
 
     return model
 

@@ -1,6 +1,8 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
+import io
+
 from helpers.general import with_num_features, with_date, _with_extra
 from helpers.sk import with_model_name, predictions_in_training_range
 from train_test import *
@@ -11,6 +13,7 @@ def parse_args():
     parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
     parser.add_argument("--model", default="nn", help="Model to generate predictions with")
     parser.add_argument("--graph-dir", default=None, help="Generate graphs of predictions and learning curves into this dir")
+    parser.add_argument("--clip", default=None, help="Json file with saved output clip min and max values")
     parser.add_argument("training_dir", help="Dir with the training CSV files")
     parser.add_argument("testing_dir", help="Dir with the testing files, including the empty prediction file")
     parser.add_argument("prediction_file", help="Destination for predictions")
@@ -22,9 +25,12 @@ def get_model(model_name):
     model_name = model_name.lower()
 
     if model_name in {"nn", "mlp"}:
-        return make_nn(history_file="nn_learning.csv")
+        return make_nn(history_file="nn_learning.csv", add_clipper=False)
     elif model_name == "rnn":
         return make_rnn(history_file="rnn_learning.csv")
+    elif model_name == "rnnx2":
+        base_model = make_rnn(history_file="rnn_learning.csv", augment_output=True)
+        return helpers.sk.AverageClonedRegressor(base_model, 2)
     elif model_name == "blr":
         return make_blr()
     elif model_name in {"elastic", "elasticnet", "en"}:
@@ -84,7 +90,18 @@ def predict_test_data(X_train, Y_train, scaler, args):
     baseline_model = sklearn.dummy.DummyRegressor("mean").fit(X_train, Y_train)
 
     # retrain a model on the full data
-    model = get_model(args.model).fit(X_train, Y_train.values)
+    model = get_model(args.model)
+
+    if args.clip:
+        # load the clipper
+        with io.open(args.clip, "rb") as json_in:
+            clipper = helpers.sk.OutputClippedTransform.load(json_in)
+            # print("Loaded clipper:", clipper.max, clipper.min)
+
+        # wrap the model with the clipper
+        model = helpers.sk.OutputTransformation(model, clipper)
+
+    model = model.fit(X_train, Y_train.values)
 
     test_data = load_data(args.testing_dir)
     X_test, Y_test = separate_output(test_data)
@@ -97,6 +114,8 @@ def predict_test_data(X_train, Y_train, scaler, args):
     print("Percent of predictions in training data range: {:.2f}%".format(100. * predictions_in_training_range(Y_train, Y_pred)))
 
     if args.graph_dir:
+        import matplotlib
+        matplotlib.use("Agg")
         save_history(model, os.path.join(args.graph_dir, "learning_curve.png"))
         graph_predictions(X_test, baseline_model, model, Y_train, os.path.join(args.graph_dir, "predictions.png"), test_data.index)
 
@@ -132,6 +151,8 @@ def verify_predictions(X_test, baseline_model, model):
 def main():
     args = parse_args()
 
+    logging.basicConfig(level=logging.INFO)
+
     train_data = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     X_train, Y_train = separate_output(train_data)
@@ -139,8 +160,6 @@ def main():
     scaler = make_scaler()
 
     X_train = scaler.fit_transform(X_train)
-
-    helpers.neural.set_theano_float_precision("float32")
 
     predict_test_data(X_train, Y_train, scaler, args)
 

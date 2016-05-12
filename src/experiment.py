@@ -34,9 +34,9 @@ def main():
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
 
-    test_time_onestep(dataset)
+    # test_time_onestep(dataset)
 
-    # test_output_clipping(dataset, args.training_dir)
+    test_output_clipping(dataset, args.training_dir)
 
 
 def test_schedules(dataset):
@@ -128,9 +128,9 @@ def test_stateful_rnn(dataset):
 
 def test_output_clipping(dataset, data_dir):
     unsampled_outputs = load_series(find_files(data_dir, "power")).dropna()
-    clipper = helpers.sk.OutputClippedTransform().fit(unsampled_outputs.values)
+    clipper = helpers.sk.OutputClippedTransform.from_data(unsampled_outputs.values)
 
-    model = sklearn.linear_model.ElasticNet(0.01)
+    model = make_nn(add_clipper=False)
 
     print("Baseline")
     cross_validate(dataset, model)
