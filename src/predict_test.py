@@ -1,7 +1,7 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
-from helpers.general import with_num_features, with_date
+from helpers.general import with_num_features, with_date, _with_extra
 from helpers.sk import with_model_name, predictions_in_training_range
 from train_test import *
 
@@ -34,10 +34,11 @@ def get_model(model_name):
     else:
         raise ValueError("Unknown model abbreviation '{}'".format(model_name))
 
+def with_resample(filename, resample_interval):
+    return _with_extra(filename, "resample_{}".format(resample_interval.lower()))
 
 def graph_predictions(X_test, baseline_model, model, Y_train, output_file, test_index):
     num_outputs = 5
-    resample = "1D"
 
     important_columns = [c for c, _ in rate_columns(Y_train).most_common(num_outputs)]
     output_names = Y_train.columns
@@ -47,13 +48,17 @@ def graph_predictions(X_test, baseline_model, model, Y_train, output_file, test_
     Y_model = pandas.DataFrame(model.predict(X_test), columns=output_names, index=test_index)
     Y_model = Y_model[important_columns]
 
+    # dummy resample for predict-mean
+    resample = "1D"
+
     axes = Y_baseline.resample(resample).mean().plot(figsize=(16, 9), ylim=(0, 2))
     axes.set_title("Predictions of top mean+std outputs resampled to {}".format(resample))
-    axes.get_figure().savefig(with_model_name(output_file, baseline_model, snake_case=True), dpi=300)
+    axes.get_figure().savefig(with_resample(with_model_name(output_file, baseline_model, snake_case=True), resample), dpi=300)
 
-    axes = Y_model.resample(resample).mean().plot(figsize=(16, 9), ylim=(0, 2))
-    axes.set_title("Predictions of top mean+std outputs resampled to {}".format(resample))
-    axes.get_figure().savefig(with_model_name(output_file, model, snake_case=True), dpi=300)
+    for resample in "1H 6H 1D".split():
+        axes = Y_model.resample(resample).mean().plot(figsize=(16, 9), ylim=(0, 2))
+        axes.set_title("Predictions of top mean+std outputs resampled to {}".format(resample))
+        axes.get_figure().savefig(with_resample(with_model_name(output_file, model, snake_case=True), resample), dpi=300)
 
 
 def rate_columns(data):
@@ -120,11 +125,8 @@ def verify_predictions(X_test, baseline_model, model):
             print(("Output: ", unusual_outputs[i]))
 
     overall_delta = per_row.mean()
-    print("Average percent change from baseline predictions: {:.2f}%".format(100. * overall_delta))
-
-    print("Percent predictions below zero: ", 100 * (Y_pred < 0).mean())
-
-    # assert overall_delta < 2
+    print("Percent change from baseline: {:.2f}%".format(100. * overall_delta))
+    print("Percent predictions below zero: {:.1f}%".format(100 * (Y_pred < 0).mean()))
 
 
 def main():
