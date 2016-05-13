@@ -34,9 +34,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
 
-    # test_time_onestep(dataset)
-
-    test_output_clipping(dataset, args.training_dir)
+    test_realistic_rnns(dataset, args.training_dir)
 
 
 def test_schedules(dataset):
@@ -124,6 +122,19 @@ def test_stateful_rnn(dataset):
     print("RNN stateful")
     model.stateful = True
     cross_validate(dataset, model)
+
+
+def test_realistic_rnns(dataset, data_dir):
+    unsampled_outputs = load_series(find_files(data_dir, "power")).dropna()
+    clipper = helpers.sk.OutputClippedTransform.from_data(unsampled_outputs.values)
+
+    for time_steps in [4, 8, 12]:
+        print("Time={} RNNx2".format(time_steps))
+        base_model = make_rnn(augment_output=True, time_steps=time_steps)
+        ensembled_model = helpers.sk.AverageClonedRegressor(base_model, 2)
+        clipped_model = helpers.sk.OutputTransformation(ensembled_model, clipper)
+
+        cross_validate(dataset, clipped_model)
 
 
 def test_output_clipping(dataset, data_dir):
