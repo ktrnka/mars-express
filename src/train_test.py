@@ -189,7 +189,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     ### EVTF ###
     event_data = load_series(find_files(data_dir, "evtf"))
 
-    for event_name in ["MAR_UMBRA", "MRB_/_RANGE_06000KM", "MSL_/_RANGE_06000KM"]:
+    for event_name in ["MAR_UMBRA", "MRB_/_RANGE_06000KM", "MSL_/_RANGE_06000KM", "DEI_PENUMBRA"]:
         dest_name = "EVTF_IN_" + event_name
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")

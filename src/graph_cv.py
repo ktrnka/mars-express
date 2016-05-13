@@ -51,7 +51,7 @@ def cv_graph(dataset, model, graph_filename):
     scores = collections.Counter({col: target_df[col].mean() + target_df[col].std() for col in target_df.columns})
     cols = [col for col, _ in scores.most_common(5)]
 
-    for resample in [None, "6H", "1D"]:
+    for resample in ["1H", "6H", "1D"]:
         sampled_df = target_df[cols]
         if resample:
             sampled_df = sampled_df.resample(resample).mean()
