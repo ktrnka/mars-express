@@ -84,6 +84,22 @@ def get_dmop_subsystem(dmop_data):
     return dmop_subsys
 
 
+def get_communication_latency(lt_data):
+    """Get the one-way latency for Earth-Mars communication as a Series"""
+    return pandas.to_timedelta(lt_data.earthmars_km / 2.998e+5, unit="s")
+
+
+def adjust_for_latency(data, latency_series, earth_sent=True):
+    """Adjust the datetimeindex of data for Earth-Mars communication latency. If the data is sent from earth, add
+    the latency. If the data is received on earth, subtract it to convert to spacecraft time."""
+    offsets = latency_series.reindex(index=data.index, method="nearest")
+
+    if earth_sent:
+        data.index = data.index + offsets
+    else:
+        data.index = data.index - offsets
+
+
 def get_dmop_ranges(dmop_subsystem, subsystem_name, hours_impact=1.):
     time_offset = pandas.Timedelta(hours=hours_impact)
     for t in dmop_subsystem[dmop_subsystem == subsystem_name].index:
@@ -166,6 +182,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     # as far as I can tell this doesn't make a difference but it makes me feel better
     longterm_data = longterm_data.resample("1H").mean().interpolate().fillna(method="backfill")
 
+    one_way_latency = get_communication_latency(longterm_data)
+
     # time-lagged version
     add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)
     add_lag_feature(longterm_data, "eclipseduration_min", 5 * 24, "5d", data_type=numpy.int64)
@@ -209,6 +227,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
+    adjust_for_latency(dmop_data, one_way_latency)
 
     dmop_subsystems = get_dmop_subsystem(dmop_data)
 
@@ -227,11 +246,19 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     saaf_data = load_series(find_files(data_dir, "saaf"))
 
     # try a totally different style
-    saaf_data = saaf_data.resample("15Min").mean().interpolate().rolling(4).mean().fillna(method="bfill").reindex(data.index, method="nearest")
+    # saaf_data = saaf_data.resample("15Min").mean().interpolate().rolling(4).mean().fillna(method="bfill").reindex(data.index, method="nearest")
+    saaf_data = saaf_data.resample("2Min").mean().interpolate()
+
+    # 3 delays because 60 min / 5 min = 12
+    for col in ["sx", "sy", "sz", "sa"]:
+        for delay in range(1, 30):
+            saaf_data["{}_prev{}".format(col, delay)] = saaf_data[col].shift(delay)
+
+    saaf_data = saaf_data.reindex(data.index, method="nearest").fillna(method="bfill")
 
     # best 2 from EN
     for num_days in [1, 8]:
-        saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24).std().fillna(method="bfill").sum(axis=1)
+        saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * 30).std().fillna(method="bfill").sum(axis=1)
 
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
@@ -265,8 +292,11 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_transformation_feature(data, "DMOP_event_counts", "log", drop=True)
         add_transformation_feature(data, "DMOP_event_counts_rolling_2h", "gradient", drop=True)
         add_transformation_feature(data, "occultationduration_min", "log", drop=True)
-        add_transformation_feature(data, "sa", "log", drop=True)
-        add_transformation_feature(data, "sy", "log", drop=True)
+
+        for col in [c for c in data.columns if "sa_" in c or c == "sa"]:
+            add_transformation_feature(data, col, "log", drop=True)
+        for col in [c for c in data.columns if "sy_" in c or c == "sy"]:
+            add_transformation_feature(data, col, "log", drop=True)
 
         # # various crazy rolling features
         add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
@@ -327,10 +357,11 @@ def experiment_neural_network(dataset, tune_params=False):
             "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 1e-4),
             "lr_decay": helpers.sk.RandomizedSearchCV.exponential(1 - 1e-2, 1 - 1e-5),
             # "input_dropout": helpers.sk.RandomizedSearchCV.uniform(0., 0.1),
-            # "input_noise": helpers.sk.RandomizedSearchCV.uniform(0.05, 0.2),
-            # "hidden_units": helpers.sk.RandomizedSearchCV.uniform(100, 500),
+            "input_noise": helpers.sk.RandomizedSearchCV.uniform(0.05, 0.2),
+            "hidden_units": helpers.sk.RandomizedSearchCV.uniform(100, 500),
             "dropout": helpers.sk.RandomizedSearchCV.uniform(0.3, 0.7)
         }
+        nn_hyperparams = {"estimator__estimator__" + k: v for k, v in nn_hyperparams.items()}
         model = make_nn()
         model.history_file = None
         wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=20, scoring=rms_error, cv=dataset.splits, refit=False)
@@ -360,14 +391,15 @@ def make_rnn(history_file=None, augment_output=False, time_steps=4):
 
     if augment_output:
         model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
+        model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_non_negative())
 
     return model
 
 
 @helpers.general.Timed
 def experiment_rnn(dataset, tune_params=False, time_steps=4):
-    model = make_rnn(time_steps=time_steps)
-    cross_validate(dataset, model)
+    model = make_rnn(time_steps=time_steps, augment_output=True)
+    # cross_validate(dataset, model)
 
     if tune_params:
         hyperparams = {
@@ -379,6 +411,8 @@ def experiment_rnn(dataset, tune_params=False, time_steps=4):
             # "time_steps": [4, 8, 16],
             # "input_dropout": [0.02, 0.04],
         }
+        hyperparams = {"estimator__estimator__" + k: v for k, v in hyperparams.items()}
+
         wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=4, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
 
         wrapped_model.fit(dataset.inputs, dataset.outputs)
@@ -492,6 +526,7 @@ def make_rf():
 def cross_validate(dataset, model, n_jobs=1):
     scores = sklearn.cross_validation.cross_val_score(model, dataset.inputs, dataset.outputs, scoring=rms_error, cv=dataset.splits, n_jobs=n_jobs)
     print("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
+    helpers.general.get_function_logger().info("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
 
 
 def separate_output(df, num_outputs=None):
