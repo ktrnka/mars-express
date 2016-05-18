@@ -248,21 +248,32 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     # try a totally different style
     # saaf_data = saaf_data.resample("15Min").mean().interpolate().rolling(4).mean().fillna(method="bfill").reindex(data.index, method="nearest")
     saaf_data = saaf_data.resample("2Min").mean().interpolate()
+    saaf_periods = 30
 
     # 3 delays because 60 min / 5 min = 12
+    # for col in ["sx", "sy", "sz", "sa"]:
+    #     for delay in range(1, 30):
+    #         saaf_data["{}_prev{}".format(col, delay)] = saaf_data[col].shift(delay)
+
+    saaf_quartiles = []
     for col in ["sx", "sy", "sz", "sa"]:
-        for delay in range(1, 30):
-            saaf_data["{}_prev{}".format(col, delay)] = saaf_data[col].shift(delay)
+        quartile_indicator_df = pandas.get_dummies(pandas.cut(saaf_data[col], 10), col + "_")
+        quartile_hist_df = quartile_indicator_df.rolling(saaf_periods, min_periods=1).mean()
+        saaf_quartiles.append(quartile_hist_df)
 
-    saaf_data = saaf_data.reindex(data.index, method="nearest").fillna(method="bfill")
+    saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1).reindex(data.index, method="nearest")
 
-    # best 2 from EN
+    # convert to simple rolling mean
+    saaf_data = saaf_data.rolling(saaf_periods).mean().fillna(method="bfill")
+
+    # SAAF rolling stddev, took top 2 from ElasticNet
     for num_days in [1, 8]:
-        saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * 30).std().fillna(method="bfill").sum(axis=1)
+        saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
+    saaf_data = saaf_data.reindex(data.index, method="nearest").fillna(method="bfill")
 
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
-    data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest")], axis=1)
+    data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest"), saaf_quartile_df], axis=1)
     assert isinstance(data, pandas.DataFrame)
 
     if filter_null_power:
@@ -274,18 +285,6 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
 
     if derived_features:
-        # picked these by looking at 2010-10
-        # add_integrated_distance_feature(data, "sz", 105, 4)
-        # add_integrated_distance_feature(data, "sz", 120, 4)
-        # add_integrated_distance_feature(data, "sz", 90, 4)
-
-        # add_integrated_distance_feature(data, "sx", 15, 4)
-        # add_integrated_distance_feature(data, "sx", 30, 4)
-        # add_integrated_distance_feature(data, "sx", 60, 4)
-
-        # add_integrated_distance_feature(data, "sy", 45, 12)
-        # add_integrated_distance_feature(data, "sy", 120, 12)
-
         for col in [c for c in data.columns if "EVTF_IN_MRB" in c]:
             add_transformation_feature(data, col, "gradient")
         add_transformation_feature(data, "FTL_EARTH_rolling_1h", "gradient")
@@ -293,9 +292,9 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_transformation_feature(data, "DMOP_event_counts_rolling_2h", "gradient", drop=True)
         add_transformation_feature(data, "occultationduration_min", "log", drop=True)
 
-        for col in [c for c in data.columns if "sa_" in c or c == "sa"]:
+        for col in [c for c in data.columns if ("sa_" in c or c == "sa") and "]" not in c]:
             add_transformation_feature(data, col, "log", drop=True)
-        for col in [c for c in data.columns if "sy_" in c or c == "sy"]:
+        for col in [c for c in data.columns if ("sy_" in c or c == "sy") and "]" not in c]:
             add_transformation_feature(data, col, "log", drop=True)
 
         # # various crazy rolling features
@@ -304,7 +303,6 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(data, "EVTF_event_counts_rolling_5h", 50, "50")
         # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
-
 
     logger.info("DataFrame shape %s", data.shape)
     return data
@@ -435,7 +433,7 @@ def main():
     model = sklearn.linear_model.LinearRegression()
     cross_validate(dataset, model)
 
-    experiment_elastic_net(dataset, feature_importance=False)
+    experiment_elastic_net(dataset, feature_importance=True)
 
     experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
 
