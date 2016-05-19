@@ -34,7 +34,21 @@ def main():
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
 
-    test_realistic_rnns(dataset, args.training_dir)
+    test_output_clipping(dataset, args.training_dir)
+    # test_resample_clipper(args.training_dir)
+
+def test_resample_clipper(training_dir):
+    unsampled_outputs = load_series(find_files(training_dir, "power")).dropna()
+    unsampled_clipper = helpers.sk.OutputClippedTransform.from_data(unsampled_outputs.values)
+
+    sampled_outputs = unsampled_outputs.resample("5Min").mean().dropna()
+    sampled_clipper = helpers.sk.OutputClippedTransform.from_data(sampled_outputs.values)
+
+    for i, output in enumerate(unsampled_outputs.columns):
+        print(output)
+        print("\tMin: unsampled {}, sampled {} ({:.1f}% higher)".format(unsampled_clipper.min[i], sampled_clipper.min[i], 100. * (sampled_clipper.min[i] - unsampled_clipper.min[i]) / unsampled_clipper.min[i]))
+        print("\tMax: unsampled {}, sampled {} ({:.1f}% lower)".format(unsampled_clipper.max[i], sampled_clipper.max[i], 100. * (unsampled_clipper.max[i] - sampled_clipper.max[i]) / unsampled_clipper.max[i]))
+
 
 
 def test_schedules(dataset):
@@ -141,7 +155,11 @@ def test_output_clipping(dataset, data_dir):
     unsampled_outputs = load_series(find_files(data_dir, "power")).dropna()
     clipper = helpers.sk.OutputClippedTransform.from_data(unsampled_outputs.values)
 
+    sampled_outputs = unsampled_outputs.resample("5Min").mean().dropna()
+    sampled_clipper = helpers.sk.OutputClippedTransform.from_data(sampled_outputs.values)
+
     model = make_nn(add_clipper=False)
+    # model = sklearn.linear_model.ElasticNet(0.01)
 
     print("Baseline")
     cross_validate(dataset, model)
@@ -152,20 +170,9 @@ def test_output_clipping(dataset, data_dir):
     print("With range clip on unsampled data")
     cross_validate(dataset, helpers.sk.OutputTransformation(model, clipper))
 
-    # try with basic randomsearch
-    params = {
-        "estimator__alpha": helpers.sk.RandomizedSearchCV.exponential(0.05, 0.005)
-    }
-    wrapped_model = helpers.sk.OutputTransformation(model, clipper)
-    print(wrapped_model.get_params().keys())
-    search_model = helpers.sk.RandomizedSearchCV(wrapped_model, params, n_iter=5, n_jobs=1, cv=dataset.splits, scoring=rms_error)
+    print("With range clip on 5 minute data")
+    cross_validate(dataset, helpers.sk.OutputTransformation(model, sampled_clipper))
 
-    search_model.fit(dataset.inputs, dataset.outputs)
-    search_model.print_tuning_scores()
-
-    # # try elastic net cv out of curiosity
-    # print("Range clip again")
-    # cross_validate(dataset, helpers.sk.OutputTransformation(sklearn.linear_model.MultiTaskElasticNetCV(), clipper))
 
 def test_time_onestep(dataset):
     # base estimator
