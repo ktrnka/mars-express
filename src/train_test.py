@@ -163,6 +163,14 @@ def time_since_last_event(event_data, index):
     deltas = event_dates.index - event_dates
     return deltas.fillna(0).dt.total_seconds()
 
+
+def event_count(event_data, index):
+    """Make a Series with the specified index that has the hourly count of events in event_data"""
+    event_counts = pandas.Series(index=event_data.index, data=event_data.index, name="date")
+    event_counts = event_counts.resample("5Min").count().rolling(12).sum().bfill()
+    return event_counts.reindex(index, method="nearest")
+
+
 @helpers.general.Timed
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
     logger = helpers.general.get_function_logger()
@@ -231,10 +239,15 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     dmop_subsystems = get_dmop_subsystem(dmop_data)
 
+    print(dmop_subsystems.value_counts().sort_values(ascending=False))
+
     # these subsystems were found partly by trial and error
-    for subsys in "OOO ACF AAA PSF SXX MAPO MMM SSS MPER TTT PENE MOCE".split():
-        dest_name = "DMOP_time_since_{}".format(subsys)
-        event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+    for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:30]:
+    # for subsys in "OOO ACF AAA PSF SXX MAPO MMM SSS MPER TTT PENE MOCE".split():
+        # dest_name = "DMOP_time_since_{}".format(subsys)
+        # event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        dest_name = "DMOP_{}_event_count".format(subsys)
+        event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
@@ -267,8 +280,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     saaf_data = saaf_data.rolling(saaf_periods).mean().fillna(method="bfill")
 
     # SAAF rolling stddev, took top 2 from ElasticNet
-    for num_days in [1, 8]:
-        saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
+    # for num_days in [1, 8]:
+    #     saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
     saaf_data = saaf_data.reindex(data.index, method="nearest").fillna(method="bfill")
 
     longterm_data = longterm_data.reindex(data.index, method="nearest")
@@ -304,7 +317,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(data, "EVTF_event_counts_rolling_5h", 50, "50")
         # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
-    #
+
     # zero_weight = [ (u'sy__(90.47, 90.965]', 0.0),
     #                 (u'EVTF_IN_MAR_UMBRA_rolling_1h', 0.0),
     #                 (u'sx__(44.945, 105.85]', 0.0),
@@ -454,11 +467,11 @@ def experiment_rnn(dataset, tune_params=False, time_steps=4):
         hyperparams = {
             "learning_rate": helpers.sk.RandomizedSearchCV.uniform(5e-3, 5e-4),
             "lr_decay": [0.999, 1],
-            # "num_units": [25, 50, 100, 200],
+            "num_units": [25, 50, 100],
             "dropout": helpers.sk.RandomizedSearchCV.uniform(0.35, 0.65),
-            "recurrent_dropout": helpers.sk.RandomizedSearchCV.uniform(0.2, 0.7),
+            "recurrent_dropout": helpers.sk.RandomizedSearchCV.uniform(0.4, 0.7),
             # "time_steps": [4, 8, 16],
-            # "input_dropout": [0.02, 0.04],
+            "input_dropout": [0.02, 0.04],
         }
         hyperparams = {"estimator__estimator__" + k: v for k, v in hyperparams.items()}
 

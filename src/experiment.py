@@ -37,6 +37,7 @@ def main():
     test_output_clipping(dataset, args.training_dir)
     # test_resample_clipper(args.training_dir)
 
+
 def test_resample_clipper(training_dir):
     unsampled_outputs = load_series(find_files(training_dir, "power")).dropna()
     unsampled_clipper = helpers.sk.OutputClippedTransform.from_data(unsampled_outputs.values)
@@ -48,7 +49,6 @@ def test_resample_clipper(training_dir):
         print(output)
         print("\tMin: unsampled {}, sampled {} ({:.1f}% higher)".format(unsampled_clipper.min[i], sampled_clipper.min[i], 100. * (sampled_clipper.min[i] - unsampled_clipper.min[i]) / unsampled_clipper.min[i]))
         print("\tMax: unsampled {}, sampled {} ({:.1f}% lower)".format(unsampled_clipper.max[i], sampled_clipper.max[i], 100. * (unsampled_clipper.max[i] - sampled_clipper.max[i]) / unsampled_clipper.max[i]))
-
 
 
 def test_schedules(dataset):
