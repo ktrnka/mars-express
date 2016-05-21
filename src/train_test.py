@@ -239,11 +239,10 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     dmop_subsystems = get_dmop_subsystem(dmop_data)
 
-    print(dmop_subsystems.value_counts().sort_values(ascending=False))
-
     # these subsystems were found partly by trial and error
-    for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:30]:
+    # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:20]:
     # for subsys in "OOO ACF AAA PSF SXX MAPO MMM SSS MPER TTT PENE MOCE".split():
+    for subsys in "AAA PSF ACF MMM TTT VVV SSS HHH OOO MAPO MPER XXX SXX MOCE MOCS PENS PENE TMB PWF SEQ".split():
         # dest_name = "DMOP_time_since_{}".format(subsys)
         # event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
         dest_name = "DMOP_{}_event_count".format(subsys)
@@ -280,13 +279,13 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     saaf_data = saaf_data.rolling(saaf_periods).mean().fillna(method="bfill")
 
     # SAAF rolling stddev, took top 2 from ElasticNet
-    # for num_days in [1, 8]:
-    #     saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
+    for num_days in [1, 8]:
+        saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
     saaf_data = saaf_data.reindex(data.index, method="nearest").fillna(method="bfill")
 
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
-    data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest")], axis=1)
+    data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest"), saaf_quartile_df], axis=1)
     assert isinstance(data, pandas.DataFrame)
 
     if filter_null_power:
@@ -318,55 +317,55 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
 
-    # zero_weight = [ (u'sy__(90.47, 90.965]', 0.0),
-    #                 (u'EVTF_IN_MAR_UMBRA_rolling_1h', 0.0),
-    #                 (u'sx__(44.945, 105.85]', 0.0),
-    #                 (u'FTL_NADIR_rolling_1h', 0.0),
-    #                 (u'EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h_gradient', 0.0),
-    #                 (u'sy__(90.965, 178.03]', 0.0),
-    #                 (u'FTL_ACROSS_TRACK_rolling_2h', 0.0),
-    #                 (u'sa__[0, 0.08]', 0.0),
-    #                 (u'sa__(0.31, 0.43]', 0.0),
-    #                 (u'FTL_D4PNPO_rolling_1h', 0.0),
-    #                 (u'sy__(90.16, 90.47]', 0.0),
-    #                 (u'sy__(90.01, 90.16]', 0.0),
-    #                 (u'sa__(18.28, 168.95]', 0.0),
-    #                 (u'sy__(89.549, 89.77]', 0.0),
-    #                 (u'sa__(0.575, 0.739]', 0.0),
-    #                 (u'FTL_NADIR_rolling_2h', 0.0),
-    #                 (u'sx__(16.19, 21.29]', 0.0),
-    #                 (u'sz__(121.039, 124.7]', 0.0),
-    #                 (u'FTL_WARMUP_rolling_1h', 0.0),
-    #                 (u'FTL_INERTIAL_rolling_1h', 0.0),
-    #                 (u'sx__[0, 2.355]', 0.0),
-    #                 (u'sx__(21.29, 26.08]', 0.0),
-    #                 (u'FTL_ACROSS_TRACK_rolling_1h', 0.0),
-    #                 (u'sx__(5.298, 10.86]', 0.0),
-    #                 (u'FTL_SLEW_rolling_1h', 0.0),
-    #                 (u'FTL_MAINTENANCE_rolling_1h', 0.0),
-    #                 (u'sx__(30, 32.557]', 0.0),
-    #                 (u'sy__[2.402, 89.25]', 0.0),
-    #                 (u'FTL_EARTH_rolling_1h', 0.0),
-    #                 (u'sz__[1.0575, 85.86]', 0.0),
-    #                 (u'sa__(0.43, 0.575]', 0.0),
-    #                 (u'sy__(90, 90.01]', 0.0),
-    #                 (u'FTL_MAINTENANCE_rolling_2h', 0.0),
-    #                 (u'EVTF_TIME_MRB_AOS_10', 0.0),
-    #                 (u'sz__(124.7, 179.735]', 0.0),
-    #                 (u'EVTF_IN_DEI_PENUMBRA_rolling_1h', 0.0),
-    #                 (u'FTL_D4PNPO_rolling_2h', 0.0),
-    #                 (u'sx__(10.86, 16.19]', 0.0),
-    #                 (u'FTL_INERTIAL_rolling_2h', 0.0),
-    #                 (u'FTL_WARMUP_rolling_2h', 0.0),
-    #                 (u'FTL_RADIO_SCIENCE_rolling_2h', 0.0),
-    #                 (u'EVTF_IN_MSL_/_RANGE_06000KM_rolling_1h', 0.0),
-    #                 (u'sy__(89.25, 89.549]', 0.0),
-    #                 (u'EVTF_TIME_MRB_AOS_00', 0.0),
-    #                 (u'sx__(26.08, 30]', 0.0)]
-    #
-    # for col, _ in zero_weight:
-    #     if col.startswith("s") and "__" in col:
-    #         data.drop(col, axis=1, inplace=True)
+    zero_weight = [ (u'sy__(90.47, 90.965]', 0.0),
+                    (u'EVTF_IN_MAR_UMBRA_rolling_1h', 0.0),
+                    (u'sx__(44.945, 105.85]', 0.0),
+                    (u'FTL_NADIR_rolling_1h', 0.0),
+                    (u'EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h_gradient', 0.0),
+                    (u'sy__(90.965, 178.03]', 0.0),
+                    (u'FTL_ACROSS_TRACK_rolling_2h', 0.0),
+                    (u'sa__[0, 0.08]', 0.0),
+                    (u'sa__(0.31, 0.43]', 0.0),
+                    (u'FTL_D4PNPO_rolling_1h', 0.0),
+                    (u'sy__(90.16, 90.47]', 0.0),
+                    (u'sy__(90.01, 90.16]', 0.0),
+                    (u'sa__(18.28, 168.95]', 0.0),
+                    (u'sy__(89.549, 89.77]', 0.0),
+                    (u'sa__(0.575, 0.739]', 0.0),
+                    (u'FTL_NADIR_rolling_2h', 0.0),
+                    (u'sx__(16.19, 21.29]', 0.0),
+                    (u'sz__(121.039, 124.7]', 0.0),
+                    (u'FTL_WARMUP_rolling_1h', 0.0),
+                    (u'FTL_INERTIAL_rolling_1h', 0.0),
+                    (u'sx__[0, 2.355]', 0.0),
+                    (u'sx__(21.29, 26.08]', 0.0),
+                    (u'FTL_ACROSS_TRACK_rolling_1h', 0.0),
+                    (u'sx__(5.298, 10.86]', 0.0),
+                    (u'FTL_SLEW_rolling_1h', 0.0),
+                    (u'FTL_MAINTENANCE_rolling_1h', 0.0),
+                    (u'sx__(30, 32.557]', 0.0),
+                    (u'sy__[2.402, 89.25]', 0.0),
+                    (u'FTL_EARTH_rolling_1h', 0.0),
+                    (u'sz__[1.0575, 85.86]', 0.0),
+                    (u'sa__(0.43, 0.575]', 0.0),
+                    (u'sy__(90, 90.01]', 0.0),
+                    (u'FTL_MAINTENANCE_rolling_2h', 0.0),
+                    (u'EVTF_TIME_MRB_AOS_10', 0.0),
+                    (u'sz__(124.7, 179.735]', 0.0),
+                    (u'EVTF_IN_DEI_PENUMBRA_rolling_1h', 0.0),
+                    (u'FTL_D4PNPO_rolling_2h', 0.0),
+                    (u'sx__(10.86, 16.19]', 0.0),
+                    (u'FTL_INERTIAL_rolling_2h', 0.0),
+                    (u'FTL_WARMUP_rolling_2h', 0.0),
+                    (u'FTL_RADIO_SCIENCE_rolling_2h', 0.0),
+                    (u'EVTF_IN_MSL_/_RANGE_06000KM_rolling_1h', 0.0),
+                    (u'sy__(89.25, 89.549]', 0.0),
+                    (u'EVTF_TIME_MRB_AOS_00', 0.0),
+                    (u'sx__(26.08, 30]', 0.0)]
+
+    for col, _ in zero_weight:
+        if col.startswith("s") and "__" in col:
+            data.drop(col, axis=1, inplace=True)
 
     logger.info("DataFrame shape %s", data.shape)
     return data
