@@ -171,6 +171,13 @@ def event_count(event_data, index):
     return event_counts.reindex(index, method="nearest")
 
 
+def parse_cut_feature(range_feature_name):
+    """Parse a feature like sz__(95.455, 101.35] into sz, 95.455, 101.35"""
+    base_name, ranges = range_feature_name.split("__")
+    lower, upper = ranges[1:-1].split(", ")
+
+    return base_name, float(lower), float(upper)
+
 @helpers.general.Timed
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
     logger = helpers.general.get_function_logger()
@@ -215,6 +222,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     ### EVTF ###
     event_data = load_series(find_files(data_dir, "evtf"))
 
+    # TODO: Delete Deimos penumbra
     for event_name in ["MAR_UMBRA", "MRB_/_RANGE_06000KM", "MSL_/_RANGE_06000KM", "DEI_PENUMBRA"]:
         dest_name = "EVTF_IN_" + event_name
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
@@ -239,10 +247,13 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     dmop_subsystems = get_dmop_subsystem(dmop_data)
 
+    print("Selecting {}", dmop_subsystems.value_counts().sort_values(ascending=False).index[:20])
+
     # these subsystems were found partly by trial and error
     # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:20]:
-    # for subsys in "OOO ACF AAA PSF SXX MAPO MMM SSS MPER TTT PENE MOCE".split():
-    for subsys in "AAA PSF ACF MMM TTT VVV SSS HHH OOO MAPO MPER XXX SXX MOCE MOCS PENS PENE TMB PWF SEQ".split():
+    # for subsys in "OOO ACF AAA PSF MAPO MMM SSS MPER TTT PENE MOCE".split():
+    # slight tweak to top 20 because 2 of them aren't present at all in the testing data so it crashes
+    for subsys in "AAA PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB".split():
         # dest_name = "DMOP_time_since_{}".format(subsys)
         # event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
         dest_name = "DMOP_{}_event_count".format(subsys)
@@ -263,10 +274,77 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     saaf_periods = 30
 
     saaf_quartiles = []
-    for col in ["sx", "sy", "sz", "sa"]:
-        quartile_indicator_df = pandas.get_dummies(pandas.qcut(saaf_data[col], 10), col + "_")
-        quartile_hist_df = quartile_indicator_df.rolling(saaf_periods, min_periods=1).mean()
-        saaf_quartiles.append(quartile_hist_df)
+    # for col in ["sx", "sy", "sz", "sa"]:
+    #     quartile_indicator_df = pandas.get_dummies(pandas.qcut(saaf_data[col], 10), col + "_")
+    #     quartile_hist_df = quartile_indicator_df.rolling(saaf_periods, min_periods=1).mean()
+    #     saaf_quartiles.append(quartile_hist_df)
+
+    feature_weights = [(u'FTL_EARTH_rolling_2h', 0.2090884459170384),
+                       (u'FTL_EARTH_rolling_1h_gradient', 0.1649328970786253),
+                       ('sunmarsearthangle_deg', 0.14616195159508194),
+                       ('solarconstantmars', 0.12364725851562865),
+                       (u'days_in_space', 0.11634517834018873),
+                       ('sz', 0.1162091874738851),
+                       (u'DMOP_TMB_event_count', 0.1087185643788884),
+                       (u'DMOP_OOO_event_count', 0.10806246952771936),
+                       ('sunmars_km', 0.10356930184791065),
+                       (u'EVTF_altitude', 0.10178941848630195),
+                       ('eclipseduration_min', 0.10164925579451263),
+                       (u'EVTF_event_counts_rolling_5h_rolling_50', 0.097448180556450451),
+                       (u'DMOP_VVV_event_count', 0.092073778497546138),
+                       ('sx', 0.085107716513735499),
+                       (u'EVTF_IN_MAR_UMBRA_rolling_1h_rolling_50', 0.081323612746447269),
+                       (u'EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h_rolling_1600',
+                        0.061344851761047724),
+                       (u'DMOP_MMM_event_count', 0.057340949928657001),
+                       (u'eclipseduration_min_rolling_2d', 0.056939193396392737),
+                       ('earthmars_km', 0.052529123793861966),
+                       (u'flagcomms_rolling_2h', 0.039061988922431339),
+                       (u'FTL_NADIR_rolling_1h_rolling_400', 0.031684837128400332),
+                       (u'sz__(85.86, 90.0625]', 0.029773711557758643),
+                       (u'EVTF_event_counts_rolling_2h', 0.028372573892775407),
+                       (u'DMOP_AAA_event_count', 0.023535756352434666),
+                       (u'FTL_SLEW_rolling_2h', 0.022823476344759796),
+                       (u'EVTF_event_counts_rolling_5h', 0.022071070850220528),
+                       (u'EVTF_event_counts', 0.020201381912118413),
+                       (u'DMOP_PSF_event_count', 0.020129218694591739),
+                       (u'SAAF_stddev_1d', 0.019740411908750755),
+                       (u'sa__(1.53, 5.192]', 0.018961685024380826),
+                       (u'eclipseduration_min_rolling_5d', 0.018613918114030039),
+                       (u'SAAF_stddev_8d', 0.018419019368967164),
+                       (u'sy__(89.77, 89.94]', 0.017065361875026698),
+                       (u'sx__(2.355, 5.298]', 0.016407419574092953),
+                       (u'sx__(32.557, 44.945]', 0.015424066115462104),
+                       (u'sa_log', 0.014919582073732892),
+                       (u'sy_log', 0.013760041160044813),
+                       (u'sz__(101.35, 107.00167]', 0.012587397977008816),
+                       (u'DMOP_event_counts_rolling_2h_gradient', 0.011144079515462174),
+                       (u'DMOP_event_counts_rolling_5h', 0.010856510608056926),
+                       (u'EVTF_TIME_MSL_AOS_10', 0.010547019447440568),
+                       (u'sz__(112.47, 117.565]', 0.010126162391495826),
+                       (u'sz__(107.00167, 112.47]', 0.0099830744754197034),
+                       (u'sz__(117.565, 121.039]', 0.0081198807115996485),
+                       (u'sa__(5.192, 18.28]', 0.0079614117402690421),
+                       (u'DMOP_XXX_event_count', 0.0071044006256294357),
+                       (u'DMOP_MPER_event_count', 0.0064390430935358242),
+                       (u'sy__(89.94, 90]', 0.0064161463399279106),
+                       (u'sz__(90.0625, 95.455]', 0.0060623602567580299),
+                       (u'DMOP_TTT_event_count', 0.005348394893249832),
+                       (u'flagcomms_rolling_1h', 0.0051326207288945151),
+                       (u'sa__(0.739, 1.53]', 0.0050941311789206674),
+                       (u'DMOP_SXX_event_count', 0.0020341599712521202),
+                       (u'DMOP_event_counts_log', 0.00099180780069577632),
+                       (u'sa__(0.198, 0.31]', 0.00064943741967410915),
+                       (u'DMOP_HHH_event_count', 0.00047347401779672507)]
+
+    for feature, weight in feature_weights:
+        if feature.startswith("s") and "__" in feature:
+            base, lower, upper = parse_cut_feature(feature)
+
+            indicators = (saaf_data[base] > lower) & (saaf_data[base] <= upper)
+            rolling_count = indicators.rolling(saaf_periods, min_periods=1).mean()
+            rolling_count.rename(feature, inplace=True)
+            saaf_quartiles.append(rolling_count)
 
     saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1).reindex(data.index, method="nearest")
 
@@ -316,56 +394,56 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(data, "EVTF_event_counts_rolling_5h", 50, "50")
         # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
-
-    zero_weight = [ (u'sy__(90.47, 90.965]', 0.0),
-                    (u'EVTF_IN_MAR_UMBRA_rolling_1h', 0.0),
-                    (u'sx__(44.945, 105.85]', 0.0),
-                    (u'FTL_NADIR_rolling_1h', 0.0),
-                    (u'EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h_gradient', 0.0),
-                    (u'sy__(90.965, 178.03]', 0.0),
-                    (u'FTL_ACROSS_TRACK_rolling_2h', 0.0),
-                    (u'sa__[0, 0.08]', 0.0),
-                    (u'sa__(0.31, 0.43]', 0.0),
-                    (u'FTL_D4PNPO_rolling_1h', 0.0),
-                    (u'sy__(90.16, 90.47]', 0.0),
-                    (u'sy__(90.01, 90.16]', 0.0),
-                    (u'sa__(18.28, 168.95]', 0.0),
-                    (u'sy__(89.549, 89.77]', 0.0),
-                    (u'sa__(0.575, 0.739]', 0.0),
-                    (u'FTL_NADIR_rolling_2h', 0.0),
-                    (u'sx__(16.19, 21.29]', 0.0),
-                    (u'sz__(121.039, 124.7]', 0.0),
-                    (u'FTL_WARMUP_rolling_1h', 0.0),
-                    (u'FTL_INERTIAL_rolling_1h', 0.0),
-                    (u'sx__[0, 2.355]', 0.0),
-                    (u'sx__(21.29, 26.08]', 0.0),
-                    (u'FTL_ACROSS_TRACK_rolling_1h', 0.0),
-                    (u'sx__(5.298, 10.86]', 0.0),
-                    (u'FTL_SLEW_rolling_1h', 0.0),
-                    (u'FTL_MAINTENANCE_rolling_1h', 0.0),
-                    (u'sx__(30, 32.557]', 0.0),
-                    (u'sy__[2.402, 89.25]', 0.0),
-                    (u'FTL_EARTH_rolling_1h', 0.0),
-                    (u'sz__[1.0575, 85.86]', 0.0),
-                    (u'sa__(0.43, 0.575]', 0.0),
-                    (u'sy__(90, 90.01]', 0.0),
-                    (u'FTL_MAINTENANCE_rolling_2h', 0.0),
-                    (u'EVTF_TIME_MRB_AOS_10', 0.0),
-                    (u'sz__(124.7, 179.735]', 0.0),
-                    (u'EVTF_IN_DEI_PENUMBRA_rolling_1h', 0.0),
-                    (u'FTL_D4PNPO_rolling_2h', 0.0),
-                    (u'sx__(10.86, 16.19]', 0.0),
-                    (u'FTL_INERTIAL_rolling_2h', 0.0),
-                    (u'FTL_WARMUP_rolling_2h', 0.0),
-                    (u'FTL_RADIO_SCIENCE_rolling_2h', 0.0),
-                    (u'EVTF_IN_MSL_/_RANGE_06000KM_rolling_1h', 0.0),
-                    (u'sy__(89.25, 89.549]', 0.0),
-                    (u'EVTF_TIME_MRB_AOS_00', 0.0),
-                    (u'sx__(26.08, 30]', 0.0)]
-
-    for col, _ in zero_weight:
-        if col.startswith("s") and "__" in col:
-            data.drop(col, axis=1, inplace=True)
+    #
+    # zero_weight = [ (u'sy__(90.47, 90.965]', 0.0),
+    #                 (u'EVTF_IN_MAR_UMBRA_rolling_1h', 0.0),
+    #                 (u'sx__(44.945, 105.85]', 0.0),
+    #                 (u'FTL_NADIR_rolling_1h', 0.0),
+    #                 (u'EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h_gradient', 0.0),
+    #                 (u'sy__(90.965, 178.03]', 0.0),
+    #                 (u'FTL_ACROSS_TRACK_rolling_2h', 0.0),
+    #                 (u'sa__[0, 0.08]', 0.0),
+    #                 (u'sa__(0.31, 0.43]', 0.0),
+    #                 (u'FTL_D4PNPO_rolling_1h', 0.0),
+    #                 (u'sy__(90.16, 90.47]', 0.0),
+    #                 (u'sy__(90.01, 90.16]', 0.0),
+    #                 (u'sa__(18.28, 168.95]', 0.0),
+    #                 (u'sy__(89.549, 89.77]', 0.0),
+    #                 (u'sa__(0.575, 0.739]', 0.0),
+    #                 (u'FTL_NADIR_rolling_2h', 0.0),
+    #                 (u'sx__(16.19, 21.29]', 0.0),
+    #                 (u'sz__(121.039, 124.7]', 0.0),
+    #                 (u'FTL_WARMUP_rolling_1h', 0.0),
+    #                 (u'FTL_INERTIAL_rolling_1h', 0.0),
+    #                 (u'sx__[0, 2.355]', 0.0),
+    #                 (u'sx__(21.29, 26.08]', 0.0),
+    #                 (u'FTL_ACROSS_TRACK_rolling_1h', 0.0),
+    #                 (u'sx__(5.298, 10.86]', 0.0),
+    #                 (u'FTL_SLEW_rolling_1h', 0.0),
+    #                 (u'FTL_MAINTENANCE_rolling_1h', 0.0),
+    #                 (u'sx__(30, 32.557]', 0.0),
+    #                 (u'sy__[2.402, 89.25]', 0.0),
+    #                 (u'FTL_EARTH_rolling_1h', 0.0),
+    #                 (u'sz__[1.0575, 85.86]', 0.0),
+    #                 (u'sa__(0.43, 0.575]', 0.0),
+    #                 (u'sy__(90, 90.01]', 0.0),
+    #                 (u'FTL_MAINTENANCE_rolling_2h', 0.0),
+    #                 (u'EVTF_TIME_MRB_AOS_10', 0.0),
+    #                 (u'sz__(124.7, 179.735]', 0.0),
+    #                 (u'EVTF_IN_DEI_PENUMBRA_rolling_1h', 0.0),
+    #                 (u'FTL_D4PNPO_rolling_2h', 0.0),
+    #                 (u'sx__(10.86, 16.19]', 0.0),
+    #                 (u'FTL_INERTIAL_rolling_2h', 0.0),
+    #                 (u'FTL_WARMUP_rolling_2h', 0.0),
+    #                 (u'FTL_RADIO_SCIENCE_rolling_2h', 0.0),
+    #                 (u'EVTF_IN_MSL_/_RANGE_06000KM_rolling_1h', 0.0),
+    #                 (u'sy__(89.25, 89.549]', 0.0),
+    #                 (u'EVTF_TIME_MRB_AOS_00', 0.0),
+    #                 (u'sx__(26.08, 30]', 0.0)]
+    #
+    # for col, _ in zero_weight:
+    #     if col.startswith("s") and "__" in col:
+    #         data.drop(col, axis=1, inplace=True)
 
     logger.info("DataFrame shape %s", data.shape)
     return data
@@ -469,12 +547,12 @@ def experiment_rnn(dataset, tune_params=False, time_steps=4):
             "num_units": [25, 50, 100],
             "dropout": helpers.sk.RandomizedSearchCV.uniform(0.35, 0.65),
             "recurrent_dropout": helpers.sk.RandomizedSearchCV.uniform(0.4, 0.7),
-            # "time_steps": [4, 8, 16],
+            "time_steps": [4, 8],
             "input_dropout": [0.02, 0.04],
         }
         hyperparams = {"estimator__estimator__" + k: v for k, v in hyperparams.items()}
 
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=4, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
 
         wrapped_model.fit(dataset.inputs, dataset.outputs)
         wrapped_model.print_tuning_scores()

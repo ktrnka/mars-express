@@ -29,7 +29,7 @@ def get_model(model_name):
     elif model_name == "rnn":
         return make_rnn(history_file="rnn_learning.csv")
     elif model_name == "rnnx2":
-        base_model = make_rnn(history_file="rnn_learning.csv", augment_output=True, time_steps=8)
+        base_model = make_rnn(history_file="rnn_learning.csv", augment_output=True, time_steps=4)
         return helpers.sk.AverageClonedRegressor(base_model, 2)
     elif model_name == "blr":
         return make_blr()
