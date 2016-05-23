@@ -167,19 +167,18 @@ def time_since_last_event(event_data, index):
     return deltas.fillna(0).dt.total_seconds()
 
 
-def get_earth_los(event_data, index):
-    """Rough proxy for when we're behind Mars"""
-    earth_evtf = event_data[event_data.description.str.contains("RTLT")]
-    signals = earth_evtf.description.str.contains("AOS").astype("int") - earth_evtf.description.str.contains("LOS").astype(int)
+def get_signal_level(filtered_event_data, index):
+    """Merge AOS/LOS signals into a relatively simplistic rolling sum of all AOS and LOS"""
+    # earth_evtf = event_data[event_data.description.str.contains("RTLT")]
+    signals = filtered_event_data.description.str.contains("AOS").astype("int") - filtered_event_data.description.str.contains("LOS").astype(int)
     signals_sum = signals.cumsum()
 
     # there's long total loss of signal during conjunctions so this helps to compensate
     signals_mins = signals_sum.rolling(100, min_periods=1).min()
-    # signals_max = signals_sum.rolling(100, min_periods=1).max().astype(float)
-    # signals_sum = (signals_sum - signals_mins) / (signals_max - signals_mins)
+    signals_max = signals_sum.rolling(100, min_periods=1).max().astype(float)
+    signals_sum = (signals_sum - signals_mins) / (signals_max - signals_mins)
 
-    # drop index duplicates after the cumsum
-    signals_sum = (signals_sum == signals_mins)
+    # drop index duplicates after the normalization
     signals_sum = signals_sum.groupby(level=0).first()
 
     return signals_sum.reindex(index, method="ffill").fillna(method="backfill")
@@ -255,12 +254,6 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     event_sampled_df["EVTF_TIME_MRB_AOS_00"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_00"], event_sampled_df.index)
     event_sampled_df["EVTF_TIME_MSL_AOS_10"] = time_since_last_event(event_data[event_data.description == "MSL_AOS_10"], event_sampled_df.index)
 
-    new_norcia = event_data.description.str.startswith("NNO_AOS").astype(int) - event_data.description.str.startswith("NNO_LOS").astype(int)
-    new_norcia = new_norcia.cumsum()
-    new_norcia = new_norcia - new_norcia.min()
-
-    event_sampled_df["EVTF_NNO_SIGNAL"] = new_norcia.groupby(level=0).first().reindex(event_sampled_df.index, method="ffill").rolling(12, min_periods=1).mean().fillna(method="backfill")
-
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
     event_data["EVTF_event_counts"] = 1
@@ -284,10 +277,10 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     # subsystems with the command included just for a few
-    # dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
-    # for subsys in "MMM_F10A0 OOO_F68A0 MMM_F40C0 ACF_E05A PSF_37A1 PSF_31B1 PSF_38A1 ACF_M07A ACF_M01A ACF_M06A".split():
-    #     dest_name = "DMOP_{}_event_count".format(subsys)
-    #     event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+    dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
+    for subsys in "MMM_F10A0 OOO_F68A0 MMM_F40C0 ACF_E05A PSF_37A1 PSF_31B1 PSF_38A1 ACF_M07A ACF_M01A ACF_M06A".split():
+        dest_name = "DMOP_{}_event_count".format(subsys)
+        event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
