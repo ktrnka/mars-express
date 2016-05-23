@@ -25,7 +25,7 @@ def get_model(model_name):
     model_name = model_name.lower()
 
     if model_name in {"nn", "mlp"}:
-        return make_nn(history_file="nn_learning.csv", add_clipper=False)
+        return make_nn(history_file="nn_learning.csv")
     elif model_name == "rnn":
         return make_rnn(history_file="rnn_learning.csv")
     elif model_name == "rnnx2":

@@ -34,8 +34,35 @@ def main():
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
 
-    test_output_clipping(dataset, args.training_dir)
-    # test_resample_clipper(args.training_dir)
+    test_mlp_sample_weight(dataset)
+
+
+def test_mlp_sample_weight(dataset):
+    print("MLP with ReLU and sample weight")
+    model = make_nn()
+    model.estimator.non_negative = True
+    model.estimator.weight_samples = True
+    cross_validate(dataset, model)
+
+    print("MLP with ReLU")
+    model = make_nn()
+    model.estimator.non_negative = True
+    cross_validate(dataset, model)
+
+
+def test_relu_mlp(dataset):
+    print("MLP without clipping")
+    model = make_nn()
+    cross_validate(dataset, model)
+
+    print("MLP with clipping")
+    model = make_nn()
+    cross_validate(dataset, model)
+
+    print("MLP with ReLU")
+    model = make_nn()
+    model.estimator.non_negative = True
+    cross_validate(dataset, model)
 
 
 def test_resample_clipper(training_dir):
@@ -158,7 +185,7 @@ def test_output_clipping(dataset, data_dir):
     sampled_outputs = unsampled_outputs.resample("5Min").mean().dropna()
     sampled_clipper = helpers.sk.OutputClippedTransform.from_data(sampled_outputs.values)
 
-    model = make_nn(add_clipper=False)
+    model = make_nn()
     # model = sklearn.linear_model.ElasticNet(0.01)
 
     print("Baseline")
