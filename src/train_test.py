@@ -27,7 +27,7 @@ from sklearn.linear_model import LinearRegression
 import helpers.general
 import helpers.neural
 import helpers.sk
-from helpers.debug import verify_data
+from helpers.debug import verify_data, compute_cross_validation_fairness
 from helpers.features import add_lag_feature, add_transformation_feature, get_event_series, TimeRange
 from helpers.sk import rms_error
 
@@ -73,15 +73,18 @@ def get_evtf_ranges(event_data, event_prefix):
     return event_ranges
 
 
-def get_dmop_subsystem(dmop_data):
+def get_dmop_subsystem(dmop_data, include_command=False):
     """Extract the subsystem from each record of the dmop data"""
-    dmop_subsys = dmop_data.subsystem.str.extract(r"A(?P<subsystem>\w{3}).*", expand=False)
+    dmop_subsys = dmop_data.subsystem.str.extract(r"A(?P<subsystem>\w{3})(?P<command>.*)", expand=False)
     dmop_subsys_mapo = dmop_data.subsystem.str.extract(r"(?P<subsystem>.+)\..+", expand=False)
 
-    dmop_subsys.fillna(dmop_subsys_mapo, inplace=True)
-    dmop_subsys.fillna(dmop_data.subsystem, inplace=True)
+    dmop_subsys.subsystem.fillna(dmop_subsys_mapo, inplace=True)
+    dmop_subsys.subsystem.fillna(dmop_data.subsystem, inplace=True)
 
-    return dmop_subsys
+    if include_command:
+        return dmop_subsys.subsystem.str.cat(dmop_subsys.command, sep="_")
+    else:
+        return dmop_subsys.subsystem
 
 
 def get_communication_latency(lt_data):
@@ -164,6 +167,24 @@ def time_since_last_event(event_data, index):
     return deltas.fillna(0).dt.total_seconds()
 
 
+def get_earth_los(event_data, index):
+    """Rough proxy for when we're behind Mars"""
+    earth_evtf = event_data[event_data.description.str.contains("RTLT")]
+    signals = earth_evtf.description.str.contains("AOS").astype("int") - earth_evtf.description.str.contains("LOS").astype(int)
+    signals_sum = signals.cumsum()
+
+    # there's long total loss of signal during conjunctions so this helps to compensate
+    signals_mins = signals_sum.rolling(100, min_periods=1).min()
+    # signals_max = signals_sum.rolling(100, min_periods=1).max().astype(float)
+    # signals_sum = (signals_sum - signals_mins) / (signals_max - signals_mins)
+
+    # drop index duplicates after the cumsum
+    signals_sum = (signals_sum == signals_mins)
+    signals_sum = signals_sum.groupby(level=0).first()
+
+    return signals_sum.reindex(index, method="ffill").fillna(method="backfill")
+
+
 def event_count(event_data, index):
     """Make a Series with the specified index that has the hourly count of events in event_data"""
     event_counts = pandas.Series(index=event_data.index, data=event_data.index, name="date")
@@ -222,16 +243,23 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     ### EVTF ###
     event_data = load_series(find_files(data_dir, "evtf"))
 
-    # TODO: Delete Deimos penumbra
-    for event_name in ["MAR_UMBRA", "MRB_/_RANGE_06000KM", "MSL_/_RANGE_06000KM", "DEI_PENUMBRA"]:
+    for event_name in ["MAR_UMBRA", "MRB_/_RANGE_06000KM", "MSL_/_RANGE_06000KM"]:
         dest_name = "EVTF_IN_" + event_name
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
+    # event_sampled_df["EVTF_EARTH_LOS"] = get_earth_los(event_data, event_sampled_df.index).rolling(12, min_periods=0).mean()
+
     event_sampled_df["EVTF_TIME_MRB_AOS_10"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_10"], event_sampled_df.index)
     event_sampled_df["EVTF_TIME_MRB_AOS_00"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_00"], event_sampled_df.index)
     event_sampled_df["EVTF_TIME_MSL_AOS_10"] = time_since_last_event(event_data[event_data.description == "MSL_AOS_10"], event_sampled_df.index)
+
+    new_norcia = event_data.description.str.startswith("NNO_AOS").astype(int) - event_data.description.str.startswith("NNO_LOS").astype(int)
+    new_norcia = new_norcia.cumsum()
+    new_norcia = new_norcia - new_norcia.min()
+
+    event_sampled_df["EVTF_NNO_SIGNAL"] = new_norcia.groupby(level=0).first().reindex(event_sampled_df.index, method="ffill").rolling(12, min_periods=1).mean().fillna(method="backfill")
 
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
@@ -245,19 +273,21 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     dmop_data = load_series(find_files(data_dir, "dmop"))
     adjust_for_latency(dmop_data, one_way_latency)
 
-    dmop_subsystems = get_dmop_subsystem(dmop_data)
-
-    print("Selecting {}", dmop_subsystems.value_counts().sort_values(ascending=False).index[:20])
+    dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
 
     # these subsystems were found partly by trial and error
-    # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:20]:
-    # for subsys in "OOO ACF AAA PSF MAPO MMM SSS MPER TTT PENE MOCE".split():
-    # slight tweak to top 20 because 2 of them aren't present at all in the testing data so it crashes
+    # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
     for subsys in "AAA PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB".split():
         # dest_name = "DMOP_time_since_{}".format(subsys)
         # event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
         dest_name = "DMOP_{}_event_count".format(subsys)
         event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+
+    # subsystems with the command included just for a few
+    # dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
+    # for subsys in "MMM_F10A0 OOO_F68A0 MMM_F40C0 ACF_E05A PSF_37A1 PSF_31B1 PSF_38A1 ACF_M07A ACF_M01A ACF_M06A".split():
+    #     dest_name = "DMOP_{}_event_count".format(subsys)
+    #     event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
@@ -373,7 +403,6 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
             logger.info("Reduced data from {:,} rows to {:,}".format(previous_size, data.shape[0]))
 
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
-    # data["in_early_period"] = data.index < pandas.Timestamp("2010-12-15")
 
     if derived_features:
         for col in [c for c in data.columns if "EVTF_IN_MRB" in c]:
@@ -583,32 +612,33 @@ def main():
 
 def load_split_data(args):
     """Load the data, compute cross-validation splits, scale the inputs, etc. Returns a DataSet object"""
-    train_data = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
+    data = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     # cross validation by year
-    # splits = helpers.sk.TimeCV(train_data.shape[0], 10, min_training=0.4, test_splits=3)
+    splits = helpers.sk.TimeCV(data.shape[0], 10, min_training=0.7)
     # splits = sklearn.cross_validation.KFold(train_data.shape[0], 7, shuffle=False)
-    splits = sklearn.cross_validation.LeaveOneLabelOut(train_data["file_number"])
+    # splits = sklearn.cross_validation.LeaveOneLabelOut(train_data["file_number"])
 
     # just use the biggest one for now
-    X_train, Y_train = separate_output(train_data)
+    X, Y = separate_output(data)
     if args.verify:
-        verify_data(X_train, Y_train, None)
+        verify_data(X, Y, None)
+        compute_cross_validation_fairness(X.values, X.columns, Y.values, Y.columns, splits)
 
     if args.extra_analysis:
-        X_train.info()
-        print(X_train.describe())
-        compute_upper_bounds(train_data)
+        X.info()
+        print(X.describe())
+        compute_upper_bounds(data)
 
     scaler = make_scaler()
-    feature_names = X_train.columns
-    X_train = scaler.fit_transform(X_train)
+    feature_names = X.columns
+    X = scaler.fit_transform(X)
 
-    output_names = Y_train.columns
-    output_index = Y_train.index
-    Y_train = Y_train.values
+    output_names = Y.columns
+    output_index = Y.index
+    Y = Y.values
 
-    dataset = helpers.general.DataSet(X_train, Y_train, splits, feature_names, output_names, output_index)
+    dataset = helpers.general.DataSet(X, Y, splits, feature_names, output_names, output_index)
     return dataset
 
 
