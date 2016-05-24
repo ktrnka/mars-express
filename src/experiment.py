@@ -34,7 +34,13 @@ def main():
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
 
-    test_rnn_relu(dataset)
+    test_features(dataset)
+
+def test_features(dataset):
+    from helpers.features import rfe_slow
+
+    model = sklearn.linear_model.LinearRegression()
+    rfe_slow(dataset, model, rms_error)
 
 def test_rnn_relu(dataset):
     print("RNN base")
