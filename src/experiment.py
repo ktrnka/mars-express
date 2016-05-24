@@ -34,13 +34,15 @@ def main():
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
 
-    test_features(dataset)
+    test_rnn_no_val(dataset)
+
 
 def test_features(dataset):
     from helpers.features import rfe_slow
 
     model = sklearn.linear_model.LinearRegression()
     rfe_slow(dataset, model, rms_error)
+
 
 def test_rnn_relu(dataset):
     print("RNN base")
@@ -51,6 +53,29 @@ def test_rnn_relu(dataset):
     model = make_rnn()
     model.non_negative = True
     cross_validate(dataset, model)
+
+
+def test_mlp_no_val(dataset):
+    print("MLP baseline")
+    model = make_nn()
+    cross_validate(dataset, model)
+
+    print("MLP no validation")
+    model = make_nn()
+    model.estimator.val = 0.
+    cross_validate(dataset, model)
+
+
+def test_rnn_no_val(dataset):
+    print("RNN baseline")
+    model = make_rnn(augment_output=True)
+    cross_validate(dataset, model)
+
+    print("RNN no validation")
+    model = make_rnn(augment_output=True)
+    model.estimator.val = 0.
+    cross_validate(dataset, model)
+
 
 def test_mlp_sample_weight(dataset):
     print("MLP with ReLU and sample weight")

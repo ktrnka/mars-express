@@ -273,16 +273,16 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     # these subsystems were found partly by trial and error
     # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
-    for subsys in "AAA PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB VVV SXX XXX".split():
+    for subsys in "AAA PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB VVV SXX".split():
         dest_name = "DMOP_{}_event_count".format(subsys)
         event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     # subsystems with the command included just for a few
-    # dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
-    # for subsys in "MMM_F10A0 OOO_F68A0 MMM_F40C0 ACF_E05A PSF_37A1 PSF_31B1 PSF_38A1 ACF_M07A ACF_M01A ACF_M06A".split():
-    # # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
-    #     dest_name = "DMOP_{}_event_count".format(subsys)
-    #     event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+    dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
+    for subsys in "MMM_F10A0 OOO_F68A0 MMM_F40C0 ACF_E05A PSF_38A1 ACF_M07A ACF_M01A ACF_M06A".split():
+    # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
+        dest_name = "DMOP_{}_event_count".format(subsys)
+        event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
@@ -376,6 +376,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
 
+    data.drop("earthmars_km", axis=1, inplace=True)
+
     logger.info("DataFrame shape %s", data.shape)
     return data
 
@@ -445,7 +447,7 @@ def make_rnn(history_file=None, augment_output=False, time_steps=4, non_negative
                                         num_units=50,
                                         time_steps=time_steps,
                                         batch_size=256,
-                                        num_epochs=1000,
+                                        num_epochs=300,
                                         verbose=0,
                                         input_noise=0.1,
                                         input_dropout=0.02,
@@ -476,12 +478,13 @@ def experiment_rnn(dataset, tune_params=False, time_steps=4):
             "num_units": [25, 50, 100],
             "dropout": helpers.sk.RandomizedSearchCV.uniform(0.35, 0.65),
             "recurrent_dropout": helpers.sk.RandomizedSearchCV.uniform(0.4, 0.7),
-            "time_steps": [4, 8],
+            # "time_steps": [4, 8],
             "input_dropout": [0.02, 0.04],
+            "non_negative": [True, False]
         }
-        hyperparams = {"estimator__estimator__" + k: v for k, v in hyperparams.items()}
+        hyperparams = {"estimator__" + k: v for k, v in hyperparams.items()}
 
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=4, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
 
         wrapped_model.fit(dataset.inputs, dataset.outputs)
         wrapped_model.print_tuning_scores()
