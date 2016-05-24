@@ -34,34 +34,26 @@ def main():
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
 
-    test_mlp_sample_weight(dataset)
+    test_rnn_relu(dataset)
 
+def test_rnn_relu(dataset):
+    print("RNN base")
+    model = make_rnn()
+    cross_validate(dataset, model)
+
+    print("RNN with ReLU")
+    model = make_rnn()
+    model.non_negative = True
+    cross_validate(dataset, model)
 
 def test_mlp_sample_weight(dataset):
     print("MLP with ReLU and sample weight")
     model = make_nn()
-    model.estimator.non_negative = True
     model.estimator.weight_samples = True
     cross_validate(dataset, model)
 
     print("MLP with ReLU")
     model = make_nn()
-    model.estimator.non_negative = True
-    cross_validate(dataset, model)
-
-
-def test_relu_mlp(dataset):
-    print("MLP without clipping")
-    model = make_nn()
-    cross_validate(dataset, model)
-
-    print("MLP with clipping")
-    model = make_nn()
-    cross_validate(dataset, model)
-
-    print("MLP with ReLU")
-    model = make_nn()
-    model.estimator.non_negative = True
     cross_validate(dataset, model)
 
 
@@ -165,40 +157,12 @@ def test_stateful_rnn(dataset):
     cross_validate(dataset, model)
 
 
-def test_realistic_rnns(dataset, data_dir):
-    unsampled_outputs = load_series(find_files(data_dir, "power")).dropna()
-    clipper = helpers.sk.OutputClippedTransform.from_data(unsampled_outputs.values)
-
+def test_realistic_rnns(dataset):
     for time_steps in [4, 8, 12]:
         print("Time={} RNNx2".format(time_steps))
         base_model = make_rnn(augment_output=True, time_steps=time_steps)
         ensembled_model = helpers.sk.AverageClonedRegressor(base_model, 2)
-        clipped_model = helpers.sk.OutputTransformation(ensembled_model, clipper)
-
-        cross_validate(dataset, clipped_model)
-
-
-def test_output_clipping(dataset, data_dir):
-    unsampled_outputs = load_series(find_files(data_dir, "power")).dropna()
-    clipper = helpers.sk.OutputClippedTransform.from_data(unsampled_outputs.values)
-
-    sampled_outputs = unsampled_outputs.resample("5Min").mean().dropna()
-    sampled_clipper = helpers.sk.OutputClippedTransform.from_data(sampled_outputs.values)
-
-    model = make_nn()
-    # model = sklearn.linear_model.ElasticNet(0.01)
-
-    print("Baseline")
-    cross_validate(dataset, model)
-
-    print("With nonzero clip")
-    cross_validate(dataset, helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_non_negative()))
-
-    print("With range clip on unsampled data")
-    cross_validate(dataset, helpers.sk.OutputTransformation(model, clipper))
-
-    print("With range clip on 5 minute data")
-    cross_validate(dataset, helpers.sk.OutputTransformation(model, sampled_clipper))
+        cross_validate(dataset, ensembled_model)
 
 
 def test_time_onestep(dataset):

@@ -439,7 +439,7 @@ def experiment_neural_network(dataset, tune_params=False):
         wrapped_model.print_tuning_scores()
 
 
-def make_rnn(history_file=None, augment_output=False, time_steps=4):
+def make_rnn(history_file=None, augment_output=False, time_steps=4, non_negative=False):
     """Make a recurrent neural network with reasonable default args for this task"""
     model = helpers.neural.RnnRegressor(learning_rate=7e-4,
                                         num_units=50,
@@ -455,7 +455,7 @@ def make_rnn(history_file=None, augment_output=False, time_steps=4):
                                         val=0.1,
                                         assert_finite=False,
                                         pretrain=True,
-                                        non_negative=True,
+                                        non_negative=non_negative,
                                         history_file=history_file)
 
     if augment_output:

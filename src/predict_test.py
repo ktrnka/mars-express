@@ -27,7 +27,9 @@ def get_model(model_name):
     if model_name in {"nn", "mlp"}:
         return make_nn(history_file="nn_learning.csv")
     elif model_name == "rnn":
-        return make_rnn(history_file="rnn_learning.csv")
+`        return make_rnn(history_file="rnn_learning.csv", augment_output=True)
+    elif model_name == "rnn_relu":
+        return make_rnn(history_file="rnn_learning.csv", augment_output=True, non_negative=True)
     elif model_name == "rnnx2":
         base_model = make_rnn(history_file="rnn_learning.csv", augment_output=True, time_steps=4)
         return helpers.sk.AverageClonedRegressor(base_model, 2)
@@ -72,17 +74,20 @@ def rate_columns(data):
     """Rate columns by mean and stddev"""
     return collections.Counter({c: data[c].mean() + data[c].std() for c in data.columns})
 
+def get_history(model):
+    try:
+        return model.history_df_
+    except AttributeError:
+        return get_history(model.estimator_)
+
 
 def save_history(model, output_file):
     try:
-        axes = model.history_df_.plot(figsize=(16, 9), logy=True)
+        history = get_history(model)
+        axes = history.plot(figsize=(16, 9), logy=True)
         axes.get_figure().savefig(with_model_name(output_file, model, snake_case=True), dpi=300)
     except AttributeError:
-        try:
-            axes = model.estimator.history_df_.plot(figsize=(16, 9), logy=True)
-            axes.get_figure().savefig(with_model_name(output_file, model, snake_case=True), dpi=300)
-        except AttributeError:
-            print("Not saving model learning curve graph cause it doesn't exist")
+        print("Not saving model learning curve graph cause it doesn't exist")
 
 
 def predict_test_data(X_train, Y_train, scaler, args):
