@@ -34,7 +34,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
 
-    test_rnn_no_val(dataset)
+    test_rnn_relu(dataset)
 
 
 def test_features(dataset):
@@ -45,14 +45,16 @@ def test_features(dataset):
 
 
 def test_rnn_relu(dataset):
-    print("RNN base")
-    model = make_rnn()
+    print("RNN with ReLU")
+    model = make_rnn(augment_output=True)
+    model.estimator.non_negative = True
     cross_validate(dataset, model)
 
-    print("RNN with ReLU")
-    model = make_rnn()
-    model.non_negative = True
+    print("RNN base with nonneg clipper")
+    model = make_rnn(augment_output=True)
+    model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
     cross_validate(dataset, model)
+
 
 
 def test_mlp_no_val(dataset):
@@ -67,9 +69,9 @@ def test_mlp_no_val(dataset):
 
 
 def test_rnn_no_val(dataset):
-    print("RNN no pretrain")
+    print("RNN reduced batch size")
     model = make_rnn(augment_output=True)
-    model.estimator.pretrain=False
+    model.estimator.batch_size = 64
     cross_validate(dataset, model)
 
     print("RNN baseline")

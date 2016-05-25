@@ -257,7 +257,6 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
-    # adjust_for_latency_ftl(ftl_data, one_way_latency)
 
     event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
     add_lag_feature(event_sampled_df, "flagcomms", 12, "1h")
@@ -283,9 +282,9 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     # event_sampled_df["EVTF_EARTH_LOS"] = get_earth_los(event_data, event_sampled_df.index).rolling(12, min_periods=0).mean()
 
-    # event_sampled_df["EVTF_TIME_MRB_AOS_10"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_10"], event_sampled_df.index)
-    # event_sampled_df["EVTF_TIME_MRB_AOS_00"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_00"], event_sampled_df.index)
-    # event_sampled_df["EVTF_TIME_MSL_AOS_10"] = time_since_last_event(event_data[event_data.description == "MSL_AOS_10"], event_sampled_df.index)
+    event_sampled_df["EVTF_TIME_MRB_AOS_10"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_10"], event_sampled_df.index)
+    event_sampled_df["EVTF_TIME_MRB_AOS_00"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_00"], event_sampled_df.index)
+    event_sampled_df["EVTF_TIME_MSL_AOS_10"] = time_since_last_event(event_data[event_data.description == "MSL_AOS_10"], event_sampled_df.index)
 
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
@@ -394,10 +393,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_transformation_feature(data, "DMOP_event_counts_rolling_2h", "gradient", drop=True)
         add_transformation_feature(data, "occultationduration_min", "log", drop=True)
 
-        # for col in [c for c in data.columns if ("sa_" in c or c == "sa") and "]" not in c]:
-        #     add_transformation_feature(data, col, "log", drop=True)
-        # for col in [c for c in data.columns if ("sy_" in c or c == "sy") and "]" not in c]:
-        #     add_transformation_feature(data, col, "log", drop=True)
+        add_transformation_feature(data, "sa", "log", drop=True)
+        add_transformation_feature(data, "sy", "log", drop=True)
 
         # # various crazy rolling features
         add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
@@ -406,7 +403,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
 
-    auto_log(data, [c for c in data.columns if "NPWD" not in c and "_log" not in c])
+    # auto_log(data, [c for c in data.columns if "NPWD" not in c and "_log" not in c])
 
     data.drop("earthmars_km", axis=1, inplace=True)
 
@@ -478,7 +475,7 @@ def make_rnn(history_file=None, augment_output=False, time_steps=4, non_negative
     model = helpers.neural.RnnRegressor(learning_rate=7e-4,
                                         num_units=50,
                                         time_steps=time_steps,
-                                        batch_size=256,
+                                        batch_size=64,
                                         num_epochs=300,
                                         verbose=0,
                                         input_noise=0.1,
@@ -492,8 +489,7 @@ def make_rnn(history_file=None, augment_output=False, time_steps=4, non_negative
                                         non_negative=non_negative,
                                         history_file=history_file)
 
-    if augment_output:
-        model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
+    model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
 
     return model
 
@@ -506,13 +502,13 @@ def experiment_rnn(dataset, tune_params=False, time_steps=4):
     if tune_params:
         hyperparams = {
             "learning_rate": helpers.sk.RandomizedSearchCV.uniform(5e-3, 5e-4),
-            "lr_decay": [0.999, 1],
-            "num_units": [25, 50, 100],
+            # "lr_decay": [0.999, 1],
+            # "num_units": [25, 50, 100],
             "dropout": helpers.sk.RandomizedSearchCV.uniform(0.35, 0.65),
             "recurrent_dropout": helpers.sk.RandomizedSearchCV.uniform(0.4, 0.7),
             # "time_steps": [4, 8],
             "input_dropout": [0.02, 0.04],
-            "non_negative": [True, False]
+            "non_negative": [True]
         }
         hyperparams = {"estimator__" + k: v for k, v in hyperparams.items()}
 
