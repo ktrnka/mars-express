@@ -103,6 +103,15 @@ def adjust_for_latency(data, latency_series, earth_sent=True):
         data.index = data.index - offsets
 
 
+def adjust_for_latency_ftl(data, latency_series):
+    """Adjust the datetimeindex of data for Earth-Mars communication latency. If the data is sent from earth, add
+    the latency. If the data is received on earth, subtract it to convert to spacecraft time."""
+    offsets = latency_series.reindex(index=data.index, method="nearest")
+
+    data.index = data.index + offsets
+    data["ute_ms"] = data["ute_ms"] + offsets
+
+
 def get_dmop_ranges(dmop_subsystem, subsystem_name, hours_impact=1.):
     time_offset = pandas.Timedelta(hours=hours_impact)
     for t in dmop_subsystem[dmop_subsystem == subsystem_name].index:
@@ -248,6 +257,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
+    # adjust_for_latency_ftl(ftl_data, one_way_latency)
 
     event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
     add_lag_feature(event_sampled_df, "flagcomms", 12, "1h")
@@ -287,7 +297,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
-    # adjust_for_latency(dmop_data, one_way_latency)
+    adjust_for_latency(dmop_data, one_way_latency)
 
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
 
