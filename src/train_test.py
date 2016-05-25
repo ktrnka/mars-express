@@ -168,6 +168,25 @@ def add_integrated_distance_feature(dataframe, feature, point, num_periods):
 
     dataframe[new_name] = transformed
 
+
+def centered_ewma(series, num_spans):
+    forward = series.ewm(span=num_spans).mean()
+    backward = series[::-1].ewm(span=num_spans).mean()[::-1]
+
+    means = numpy.vstack([forward.values, backward.values]).mean(axis=0)
+
+    return pandas.Series(index=forward.index, data=means, name=series.name)
+
+
+def add_ewma(dataframe, feature, num_spans=24*7, drop=False):
+    assert isinstance(dataframe, pandas.DataFrame)
+    new_name = "{}_ewma{}".format(feature, num_spans)
+    dataframe[new_name] = centered_ewma(dataframe[feature], num_spans=num_spans)
+
+    if drop:
+        dataframe.drop(feature, axis=1, inplace=True)
+
+
 def time_since_last_event(event_data, index):
     """Make a Series with the specified index that tracks time since the last event, backfilled with zero"""
     event_dates = pandas.Series(index=event_data.index, data=event_data.index, name="date")
