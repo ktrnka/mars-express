@@ -201,6 +201,26 @@ def parse_cut_feature(range_feature_name):
 
     return base_name, float(lower), float(upper)
 
+
+def auto_log(data, columns):
+    logger = helpers.general.get_function_logger()
+    X = sklearn.preprocessing.RobustScaler().fit_transform(data[columns])
+
+    # find rows with values over 10x IQR from median
+    X_deviants = numpy.abs(X) > 10
+    column_deviants = X_deviants.mean(axis=0)
+
+    changed_cols = []
+    for column, deviation in zip(columns, column_deviants):
+        if deviation > 0.01:
+            logger.info("Auto log on %s with %.1f%% deviant values", column, 100. * deviation)
+            add_transformation_feature(data, column, "log", drop=True)
+            changed_cols.append(column)
+
+    logger.info("Changed columns: %s", changed_cols)
+
+
+
 @helpers.general.Timed
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
     logger = helpers.general.get_function_logger()
@@ -267,7 +287,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
-    adjust_for_latency(dmop_data, one_way_latency)
+    # adjust_for_latency(dmop_data, one_way_latency)
 
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
 
@@ -278,11 +298,11 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     # subsystems with the command included just for a few
-    dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
-    for subsys in "MMM_F10A0 OOO_F68A0 MMM_F40C0 ACF_E05A PSF_38A1 ACF_M07A ACF_M01A ACF_M06A".split():
-    # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
-        dest_name = "DMOP_{}_event_count".format(subsys)
-        event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+    # dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
+    # for subsys in "MMM_F10A0 OOO_F68A0 MMM_F40C0 ACF_E05A PSF_38A1 ACF_M07A ACF_M01A ACF_M06A".split():
+    # # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
+    #     dest_name = "DMOP_{}_event_count".format(subsys)
+    #     event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
@@ -364,10 +384,10 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_transformation_feature(data, "DMOP_event_counts_rolling_2h", "gradient", drop=True)
         add_transformation_feature(data, "occultationduration_min", "log", drop=True)
 
-        for col in [c for c in data.columns if ("sa_" in c or c == "sa") and "]" not in c]:
-            add_transformation_feature(data, col, "log", drop=True)
-        for col in [c for c in data.columns if ("sy_" in c or c == "sy") and "]" not in c]:
-            add_transformation_feature(data, col, "log", drop=True)
+        # for col in [c for c in data.columns if ("sa_" in c or c == "sa") and "]" not in c]:
+        #     add_transformation_feature(data, col, "log", drop=True)
+        # for col in [c for c in data.columns if ("sy_" in c or c == "sy") and "]" not in c]:
+        #     add_transformation_feature(data, col, "log", drop=True)
 
         # # various crazy rolling features
         add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
@@ -375,6 +395,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(data, "EVTF_event_counts_rolling_5h", 50, "50")
         # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
+
+    auto_log(data, [c for c in data.columns if "NPWD" not in c and "_log" not in c])
 
     data.drop("earthmars_km", axis=1, inplace=True)
 

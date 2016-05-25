@@ -67,13 +67,13 @@ def test_mlp_no_val(dataset):
 
 
 def test_rnn_no_val(dataset):
-    print("RNN baseline")
+    print("RNN no pretrain")
     model = make_rnn(augment_output=True)
+    model.estimator.pretrain=False
     cross_validate(dataset, model)
 
-    print("RNN no validation")
+    print("RNN baseline")
     model = make_rnn(augment_output=True)
-    model.estimator.val = 0.
     cross_validate(dataset, model)
 
 
