@@ -277,13 +277,13 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
 
-    event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
-    add_lag_feature(event_sampled_df, "flagcomms", 12, "1h")
-    add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
-    event_sampled_df.drop("flagcomms", axis=1, inplace=True)
+    # event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
+    # add_lag_feature(event_sampled_df, "flagcomms", 12, "1h")
+    # add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
+    # event_sampled_df.drop("flagcomms", axis=1, inplace=True)
 
     # select columns or take preselected ones
-    for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK", "RADIO_SCIENCE"]:
+    for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK"]:
         dest_name = "FTL_" + ftl_type
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
@@ -321,7 +321,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     # these subsystems were found partly by trial and error
     # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
-    for subsys in "AAA PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB VVV SXX".split():
+    for subsys in "PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB VVV SXX".split():
         dest_name = "DMOP_{}_event_count".format(subsys)
         event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
@@ -461,7 +461,7 @@ def make_nn(history_file=None):
                                        non_negative=True,
                                        assert_finite=False)
 
-    model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
+    model = with_append_mean(model)
 
     return model
 
@@ -509,9 +509,14 @@ def make_rnn(history_file=None, augment_output=False, time_steps=4, non_negative
                                         non_negative=non_negative,
                                         history_file=history_file)
 
-    model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
+    model = with_append_mean(model)
 
     return model
+
+
+def with_append_mean(model):
+    """Saving some typing"""
+    return helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
 
 
 @helpers.general.Timed

@@ -34,7 +34,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
 
-    test_rnn_relu(dataset)
+    test_rnn_l2(dataset)
 
 
 def test_features(dataset):
@@ -55,7 +55,15 @@ def test_rnn_relu(dataset):
     model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
     cross_validate(dataset, model)
 
+def test_rnn_l2(dataset):
+    print("RNN with small L2")
+    model = make_rnn()
+    model.estimator.l2 = 1e-6
+    cross_validate(dataset, model)
 
+    print("RNN base")
+    model = make_rnn()
+    cross_validate(dataset, model)
 
 def test_mlp_no_val(dataset):
     print("MLP baseline")
