@@ -280,6 +280,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
     add_lag_feature(event_sampled_df, "flagcomms", 12, "1h")
     add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
+    add_ewma(event_sampled_df, "flagcomms", num_spans=12 * 24 * 30)
     event_sampled_df.drop("flagcomms", axis=1, inplace=True)
 
     # select columns or take preselected ones
@@ -288,6 +289,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         add_lag_feature(event_sampled_df, dest_name, 24, "2h")
+        add_ewma(event_sampled_df, dest_name, num_spans=12 * 24 * 30)
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     ### EVTF ###
@@ -297,6 +299,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         dest_name = "EVTF_IN_" + event_name
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
+        add_ewma(event_sampled_df, dest_name, num_spans=12 * 24 * 30)
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     # event_sampled_df["EVTF_EARTH_LOS"] = get_earth_los(event_data, event_sampled_df.index).rolling(12, min_periods=0).mean()
@@ -312,6 +315,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     event_data["EVTF_altitude"] = altitude_series
     add_lag_feature(event_data, "EVTF_event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(event_data, "EVTF_event_counts", 5, "5h", data_type=numpy.int64)
+    add_ewma(event_data, "EVTF_event_counts", num_spans=12 * 24 * 30)
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
@@ -337,6 +341,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     dmop_data = dmop_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
     add_lag_feature(dmop_data, "DMOP_event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(dmop_data, "DMOP_event_counts", 5, "5h", data_type=numpy.int64)
+    add_ewma(dmop_data, "DMOP_event_counts", num_spans=12 * 24 * 30)
+
 
     ### SAAF ###
     saaf_data = load_series(find_files(data_dir, "saaf"))
@@ -377,6 +383,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
             saaf_quartiles.append(rolling_count)
 
     saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1).reindex(data.index, method="nearest")
+    for col in saaf_quartile_df:
+        add_ewma(saaf_quartile_df, col, num_spans=24 * 30)
 
     # 3 delays because 60 min / 5 min = 12
     # for col in ["sx", "sy", "sz", "sa"]:
