@@ -13,7 +13,7 @@ import helpers.general
 import helpers.neural
 import helpers.sk
 from helpers.sk import rms_error
-from train_test import make_nn, cross_validate, make_rnn, load_series, find_files, load_split_data
+from train_test import make_nn, cross_validate, make_rnn, load_series, find_files, load_split_data, with_non_negative
 
 """
 Dumping ground for one-off experiments so that they don't clog up train_test so much.
@@ -46,14 +46,14 @@ def test_features(dataset):
 
 def test_rnn_relu(dataset):
     print("RNN with ReLU")
-    model = make_rnn(augment_output=True)
+    model = make_rnn()
     model.estimator.non_negative = True
     cross_validate(dataset, model)
 
     print("RNN base with nonneg clipper")
-    model = make_rnn(augment_output=True)
-    model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
+    model = with_non_negative(make_rnn())
     cross_validate(dataset, model)
+
 
 def test_input_noise(dataset):
     print("RNN with half input noise")
@@ -65,6 +65,7 @@ def test_input_noise(dataset):
     model = make_rnn()
     cross_validate(dataset, model)
 
+
 def test_rnn_l2(dataset):
     print("RNN with small L2")
     model = make_rnn()
@@ -74,6 +75,7 @@ def test_rnn_l2(dataset):
     print("RNN base")
     model = make_rnn()
     cross_validate(dataset, model)
+
 
 def test_mlp_no_val(dataset):
     print("MLP baseline")
@@ -86,24 +88,23 @@ def test_mlp_no_val(dataset):
     cross_validate(dataset, model)
 
 
-def test_rnn_no_val(dataset):
+def test_rnn_smaller_batches(dataset):
     print("RNN reduced batch size")
-    model = make_rnn(augment_output=True)
+    model = make_rnn()
     model.estimator.batch_size = 64
     cross_validate(dataset, model)
 
     print("RNN baseline")
-    model = make_rnn(augment_output=True)
+    model = make_rnn()
     cross_validate(dataset, model)
 
 
 def test_mlp_sample_weight(dataset):
     print("MLP with ReLU and sample weight")
-    model = make_nn()
-    model.estimator.weight_samples = True
+    model = make_nn(weight_samples=True)
     cross_validate(dataset, model)
 
-    print("MLP with ReLU")
+    print("MLP base")
     model = make_nn()
     cross_validate(dataset, model)
 
@@ -142,14 +143,6 @@ def test_schedules(dataset):
     print("NN with variance schedule")
     model.history_file = "nn_variance_schedule.csv"
     model.fit(dataset.inputs, dataset.outputs)
-
-
-def test_predict_mean(dataset):
-    """Try augmenting the output with the mean of outputs to make it easier to learn"""
-    model = make_nn()
-
-    cross_validate(dataset, model)
-    cross_validate(dataset, helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean()))
 
 
 def test_rnn_elu(dataset):
@@ -208,11 +201,11 @@ def test_stateful_rnn(dataset):
     cross_validate(dataset, model)
 
 
-def test_realistic_rnns(dataset):
-    for time_steps in [4, 8, 12]:
-        print("Time={} RNNx2".format(time_steps))
-        base_model = make_rnn(augment_output=True, time_steps=time_steps)
-        ensembled_model = helpers.sk.AverageClonedRegressor(base_model, 2)
+def test_realistic_rnns(dataset, num_clones=2):
+    for time_steps in [4, 8]:
+        print("Time={} RNNx{}".format(time_steps, num_clones))
+        base_model = with_non_negative(make_rnn(time_steps=time_steps))
+        ensembled_model = helpers.sk.AverageClonedRegressor(base_model, num_clones)
         cross_validate(dataset, ensembled_model)
 
 

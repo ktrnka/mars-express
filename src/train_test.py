@@ -441,7 +441,7 @@ def compute_upper_bounds(dataframe):
         print("RMS with {} approximation: {:.3f}".format(interval, helpers.sk._rms_error(dataframe, upsampled_data)))
 
 
-def make_nn(history_file=None):
+def make_nn(history_file=None, **kwargs):
     """Make a plain neural network with reasonable default args"""
 
     model = helpers.neural.NnRegressor(num_epochs=500,
@@ -459,7 +459,8 @@ def make_nn(history_file=None):
                                        history_file=history_file,
                                        lr_decay=0.99,
                                        non_negative=True,
-                                       assert_finite=False)
+                                       assert_finite=False,
+                                       **kwargs)
 
     model = with_append_mean(model)
 
@@ -515,8 +516,13 @@ def make_rnn(history_file=None, augment_output=False, time_steps=4, non_negative
 
 
 def with_append_mean(model):
-    """Saving some typing"""
+    """Force the model to also predict the sum of outputs"""
     return helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
+
+
+def with_non_negative(model):
+    """Wrap the model in another model that forces outputs to be positive"""
+    return helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_non_negative())
 
 
 @helpers.general.Timed
