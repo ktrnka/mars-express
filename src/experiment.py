@@ -34,7 +34,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
 
-    test_rnn_l2(dataset)
+    test_input_noise(dataset)
 
 
 def test_features(dataset):
@@ -53,6 +53,16 @@ def test_rnn_relu(dataset):
     print("RNN base with nonneg clipper")
     model = make_rnn(augment_output=True)
     model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_append_mean())
+    cross_validate(dataset, model)
+
+def test_input_noise(dataset):
+    print("RNN with half input noise")
+    model = make_rnn()
+    model.estimator.input_noise /= 2.
+    cross_validate(dataset, model)
+
+    print("RNN base")
+    model = make_rnn()
     cross_validate(dataset, model)
 
 def test_rnn_l2(dataset):
