@@ -46,12 +46,12 @@ def test_features(dataset):
 
 def test_ewma_output(dataset):
     print("MLP with EWMA")
-    model = make_nn()
+    model, _ = make_nn()
     model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_ewma_outputs(num_spans=1))
     cross_validate(dataset, model)
 
     print("MLP")
-    model = make_nn()
+    model, _ = make_nn()
     cross_validate(dataset, model)
 
 def test_tree_methods(dataset):
@@ -75,76 +75,76 @@ def test_skflow(dataset):
     cross_validate(dataset, model)
 
     print("MLP")
-    cross_validate(dataset, make_nn())
+    cross_validate(dataset, make_nn()[0])
 
 
 def test_rnn_relu(dataset):
     print("RNN with ReLU")
-    model = make_rnn()
+    model, _ = make_rnn()
     model.estimator.non_negative = True
     cross_validate(dataset, model)
 
     print("RNN base with nonneg clipper")
-    model = with_non_negative(make_rnn())
+    model = with_non_negative(make_rnn()[0])
     cross_validate(dataset, model)
 
 
 def test_input_noise(dataset):
     print("RNN with half input noise 2%")
-    model = make_rnn()
+    model, _ = make_rnn()
     model.estimator.input_noise = 0.02
     cross_validate(dataset, model)
 
     print("RNN with half input noise 1%")
-    model = make_rnn()
+    model, _ = make_rnn()
     model.estimator.input_noise = 0.01
     cross_validate(dataset, model)
 
     print("RNN base 5% now")
-    model = make_rnn()
+    model, _ = make_rnn()
     cross_validate(dataset, model)
 
 
 def test_rnn_l2(dataset):
     print("RNN with small L2")
-    model = make_rnn()
+    model, _ = make_rnn()
     model.estimator.l2 = 1e-6
     cross_validate(dataset, model)
 
     print("RNN base")
-    model = make_rnn()
+    model, _ = make_rnn()
     cross_validate(dataset, model)
 
 
 def test_mlp_no_val(dataset):
     print("MLP baseline")
-    model = make_nn()
+    model, _ = make_nn()
     cross_validate(dataset, model)
 
     print("MLP no validation")
-    model = make_nn()
+    model, _ = make_nn()
     model.estimator.val = 0.
     cross_validate(dataset, model)
 
 
 def test_rnn_smaller_batches(dataset):
     print("RNN reduced batch size")
-    model = make_rnn()
+    model, _ = make_rnn()
     model.estimator.batch_size = 64
     cross_validate(dataset, model)
 
     print("RNN baseline")
-    model = make_rnn()
+    model, _ = make_rnn()
     cross_validate(dataset, model)
 
 
 def test_mlp_sample_weight(dataset):
     print("MLP with ReLU and sample weight")
-    model = make_nn(weight_samples=True)
+    model, _ = make_nn(weight_samples=True)
     cross_validate(dataset, model)
 
     print("MLP base")
-    model = make_nn()
+    model, _ = make_nn()
     cross_validate(dataset, model)
 
 
@@ -163,7 +163,7 @@ def test_resample_clipper(training_dir):
 
 def test_schedules(dataset):
     """Try a few different learning rate schedules"""
-    model = make_nn()
+    model, _ = make_nn()
     model.val = 0.1
 
     # base = no schedule
@@ -216,15 +216,15 @@ def test_rnn_elu(dataset):
 
 def test_clones(dataset, n=2):
     print("Baseline model")
-    cross_validate(dataset, make_rnn())
+    cross_validate(dataset, make_rnn()[0])
 
     print("Ensemble of {}".format(n))
-    model = helpers.sk.AverageClonedRegressor(make_rnn(), n)
+    model = helpers.sk.AverageClonedRegressor(make_rnn()[0], n)
     cross_validate(dataset, model)
 
 
 def test_stateful_rnn(dataset):
-    model = make_rnn()
+    model, _ = make_rnn()
     model.batch_size = 4
     model.time_steps = 4
     model.val = 0
@@ -247,14 +247,14 @@ def test_realistic_rnns(dataset, num_clones=2):
 
     for time_steps in [4, 8]:
         print("Time={} RNNx{}".format(time_steps, num_clones))
-        base_model = with_non_negative(make_rnn(time_steps=time_steps))
+        base_model = with_non_negative(make_rnn(time_steps=time_steps)[0])
         ensembled_model = helpers.sk.AverageClonedRegressor(base_model, num_clones)
         cross_validate(dataset, ensembled_model)
 
 
 def test_time_onestep(dataset):
     # base estimator
-    model = make_nn()
+    model, _ = make_nn()
 
     print("Baseline")
     cross_validate(dataset, model)
@@ -264,7 +264,7 @@ def test_time_onestep(dataset):
 
 
 def test_output_augmentations(dataset):
-    base_model = make_rnn()
+    base_model, _ = make_rnn()
     cross_validate(dataset, base_model)
 
     # plain mean

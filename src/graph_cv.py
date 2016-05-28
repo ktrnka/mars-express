@@ -65,7 +65,7 @@ def main():
     elastic_net = sklearn.linear_model.ElasticNet(0.01)
 
     if args.clip:
-        mlp = make_nn()
+        mlp = make_nn()[0]
 
         # load the clipper
         with io.open(args.clip, "rb") as json_in:
@@ -75,7 +75,7 @@ def main():
         elastic_net = helpers.sk.OutputTransformation(elastic_net, clipper)
         mlp = helpers.sk.OutputTransformation(mlp, clipper)
     else:
-        mlp = make_nn()
+        mlp = make_nn()[0]
 
     cv_graph(dataset, elastic_net, args.base_output)
     cv_graph(dataset, mlp, args.base_output)

@@ -270,17 +270,23 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     one_way_latency = get_communication_latency(longterm_data)
 
+    for col in longterm_data.columns:
+        add_lag_feature(longterm_data, col, 24, "1d")
+        add_lag_feature(longterm_data, col, 4 * 24, "4d")
+        add_lag_feature(longterm_data, col, 16 * 24, "16d")
+
     # time-lagged version
-    add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)
-    add_lag_feature(longterm_data, "eclipseduration_min", 5 * 24, "5d", data_type=numpy.int64)
+    # add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)
+    # add_lag_feature(longterm_data, "eclipseduration_min", 5 * 24, "5d", data_type=numpy.int64)
 
     ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
 
-    # event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
-    # add_lag_feature(event_sampled_df, "flagcomms", 12, "1h")
-    # add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
-    # event_sampled_df.drop("flagcomms", axis=1, inplace=True)
+    event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
+    add_lag_feature(event_sampled_df, "flagcomms", 12, "1h")
+    add_lag_feature(event_sampled_df, "flagcomms", 2 * 12, "2h")
+    add_lag_feature(event_sampled_df, "flagcomms", 8 * 12, "8h")
+    event_sampled_df.drop("flagcomms", axis=1, inplace=True)
 
     # select columns or take preselected ones
     for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK"]:
@@ -329,8 +335,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
 
     # these subsystems were found partly by trial and error
-    # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
-    for subsys in "PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB VVV SXX".split():
+    for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:15]:
+    # for subsys in "PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB VVV SXX".split():
         dest_name = "DMOP_{}_event_count".format(subsys)
         event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
         add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
@@ -339,11 +345,15 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(event_sampled_df, dest_name, -12 * 12, "next12h")
 
     # subsystems with the command included just for a few
-    # dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
+    dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
     # for subsys in "MMM_F10A0 OOO_F68A0 MMM_F40C0 ACF_E05A PSF_38A1 ACF_M07A ACF_M01A ACF_M06A".split():
-    # # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
-    #     dest_name = "DMOP_{}_event_count".format(subsys)
-    #     event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+    for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
+        dest_name = "DMOP_{}_event_count".format(subsys)
+        event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
+        add_lag_feature(event_sampled_df, dest_name, 12 * 16, "16h")
+        add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 4, "4d")
+        add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 16, "16d")
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
@@ -363,46 +373,43 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     saaf_periods = 30
 
     saaf_quartiles = []
-    # for col in ["sx", "sy", "sz", "sa"]:
-    #     quartile_indicator_df = pandas.get_dummies(pandas.qcut(saaf_data[col], 10), col + "_")
-    #     quartile_hist_df = quartile_indicator_df.rolling(saaf_periods, min_periods=1).mean()
-    #     saaf_quartiles.append(quartile_hist_df)
+    for col in ["sx", "sy", "sz", "sa"]:
+        quartile_indicator_df = pandas.get_dummies(pandas.qcut(saaf_data[col], 10), col + "_")
+        quartile_hist_df = quartile_indicator_df.rolling(saaf_periods, min_periods=1).mean()
+        saaf_quartiles.append(quartile_hist_df)
 
-    feature_weights = [(u'sz__(85.86, 90.0625]', 0.029773711557758643),
-                       (u'sa__(1.53, 5.192]', 0.018961685024380826),
-                       (u'sy__(89.77, 89.94]', 0.017065361875026698),
-                       (u'sx__(2.355, 5.298]', 0.016407419574092953),
-                       (u'sx__(32.557, 44.945]', 0.015424066115462104),
-                       (u'sz__(101.35, 107.00167]', 0.012587397977008816),
-                       (u'sz__(112.47, 117.565]', 0.010126162391495826),
-                       (u'sz__(107.00167, 112.47]', 0.0099830744754197034),
-                       (u'sz__(117.565, 121.039]', 0.0081198807115996485),
-                       (u'sa__(5.192, 18.28]', 0.0079614117402690421),
-                       (u'sy__(89.94, 90]', 0.0064161463399279106),
-                       (u'sz__(90.0625, 95.455]', 0.0060623602567580299),
-                       (u'sa__(0.739, 1.53]', 0.0050941311789206674),
-                       (u'sa__(0.198, 0.31]', 0.00064943741967410915)]
+    # feature_weights = [(u'sz__(85.86, 90.0625]', 0.029773711557758643),
+    #                    (u'sa__(1.53, 5.192]', 0.018961685024380826),
+    #                    (u'sy__(89.77, 89.94]', 0.017065361875026698),
+    #                    (u'sx__(2.355, 5.298]', 0.016407419574092953),
+    #                    (u'sx__(32.557, 44.945]', 0.015424066115462104),
+    #                    (u'sz__(101.35, 107.00167]', 0.012587397977008816),
+    #                    (u'sz__(112.47, 117.565]', 0.010126162391495826),
+    #                    (u'sz__(107.00167, 112.47]', 0.0099830744754197034),
+    #                    (u'sz__(117.565, 121.039]', 0.0081198807115996485),
+    #                    (u'sa__(5.192, 18.28]', 0.0079614117402690421),
+    #                    (u'sy__(89.94, 90]', 0.0064161463399279106),
+    #                    (u'sz__(90.0625, 95.455]', 0.0060623602567580299),
+    #                    (u'sa__(0.739, 1.53]', 0.0050941311789206674),
+    #                    (u'sa__(0.198, 0.31]', 0.00064943741967410915)]
+    #
+    # for feature, weight in feature_weights:
+    #     if feature.startswith("s") and "__" in feature:
+    #         base, lower, upper = parse_cut_feature(feature)
+    #
+    #         indicators = (saaf_data[base] > lower) & (saaf_data[base] <= upper)
+    #         rolling_count = indicators.rolling(saaf_periods, min_periods=1).mean()
+    #         rolling_count.rename(feature, inplace=True)
+    #         saaf_quartiles.append(rolling_count)
 
-    for feature, weight in feature_weights:
-        if feature.startswith("s") and "__" in feature:
-            base, lower, upper = parse_cut_feature(feature)
-
-            indicators = (saaf_data[base] > lower) & (saaf_data[base] <= upper)
-            rolling_count = indicators.rolling(saaf_periods, min_periods=1).mean()
-            rolling_count.rename(feature, inplace=True)
-            saaf_quartiles.append(rolling_count)
-
-    saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1).reindex(data.index, method="nearest")
+    saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1)
 
     for col in saaf_quartile_df.columns:
-        # add_lag_feature(saaf_quartile_df, col, 4, "4h")
-        # add_lag_feature(saaf_quartile_df, col, 12, "12h")
-        add_lag_feature(saaf_quartile_df, col, 48, "48h", drop=True)
+        add_lag_feature(saaf_quartile_df, col, saaf_periods * 4, "4h")
+        add_lag_feature(saaf_quartile_df, col, saaf_periods * 12, "12h")
+        add_lag_feature(saaf_quartile_df, col, saaf_periods * 48, "48h")
 
-    # 3 delays because 60 min / 5 min = 12
-    # for col in ["sx", "sy", "sz", "sa"]:
-    #     for delay in range(1, 30):
-    #         saaf_data["{}_prev{}".format(col, delay)] = saaf_data[col].shift(delay)
+    saaf_quartile_df = saaf_quartile_df.reindex(data.index, method="nearest")
 
     # convert to simple rolling mean
     saaf_data = saaf_data.rolling(saaf_periods).mean().fillna(method="bfill")
@@ -443,8 +450,6 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
 
-    # auto_log(data, [c for c in data.columns if "NPWD" not in c and "_log" not in c])
-
     data.drop("earthmars_km", axis=1, inplace=True)
 
     logger.info("DataFrame shape %s", data.shape)
@@ -482,12 +487,15 @@ def make_nn(history_file=None, **kwargs):
                                        **kwargs)
 
     model = with_append_mean(model)
+    model = with_scaler(model, "nn")
 
-    return model
+    prefix = "nn__estimator__"
+
+    return model, prefix
 
 @helpers.general.Timed
 def experiment_neural_network(dataset, tune_params=False):
-    model = make_nn()
+    model, param_prefix = make_nn()
     cross_validate(dataset, model)
 
     if tune_params:
@@ -500,8 +508,8 @@ def experiment_neural_network(dataset, tune_params=False):
             "hidden_units": helpers.sk.RandomizedSearchCV.uniform(100, 500),
             "dropout": helpers.sk.RandomizedSearchCV.uniform(0.3, 0.7)
         }
-        nn_hyperparams = {"estimator__estimator__" + k: v for k, v in nn_hyperparams.items()}
-        model = make_nn()
+        nn_hyperparams = {param_prefix + k: v for k, v in nn_hyperparams.items()}
+        model, _ = make_nn()
         model.history_file = None
         wrapped_model = helpers.sk.RandomizedSearchCV(model, nn_hyperparams, n_iter=20, scoring=rms_error, cv=dataset.splits, refit=False)
         # cross_validate(X_train, Y_train, wrapped_model, "RandomizedSearchCV(NnRegressor)", splits)
@@ -530,8 +538,11 @@ def make_rnn(history_file=None, time_steps=4, non_negative=False):
                                         history_file=history_file)
 
     model = with_append_mean(model)
+    model = with_scaler(model, "rnn")
 
-    return model
+    prefix = "rnn__estimator__"
+
+    return model, prefix
 
 
 def with_append_mean(model):
@@ -546,7 +557,7 @@ def with_non_negative(model):
 
 @helpers.general.Timed
 def experiment_rnn(dataset, tune_params=False, time_steps=4):
-    model = make_rnn(time_steps=time_steps)
+    model, param_prefix = make_rnn(time_steps=time_steps)
     cross_validate(dataset, model)
 
     if tune_params:
@@ -558,9 +569,8 @@ def experiment_rnn(dataset, tune_params=False, time_steps=4):
             "recurrent_dropout": helpers.sk.RandomizedSearchCV.uniform(0.4, 0.7),
             "time_steps": [8],
             # "input_dropout": [0.02, 0.04],
-            # "non_negative": [True]
         }
-        hyperparams = {"estimator__" + k: v for k, v in hyperparams.items()}
+        hyperparams = {param_prefix + k: v for k, v in hyperparams.items()}
 
         wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=8, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
 
@@ -581,7 +591,7 @@ def main():
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(dataset, baseline_model)
 
-    model = sklearn.linear_model.LinearRegression()
+    model = with_scaler(sklearn.linear_model.LinearRegression(), "lr")
     cross_validate(dataset, model)
 
     experiment_elastic_net(dataset, feature_importance=True)
@@ -600,7 +610,6 @@ def load_split_data(args):
     # splits = sklearn.cross_validation.KFold(train_data.shape[0], 7, shuffle=False)
     # splits = sklearn.cross_validation.LeaveOneLabelOut(train_data["file_number"])
 
-    # just use the biggest one for now
     X, Y = separate_output(data)
     if args.verify:
         verify_data(X, Y, None)
@@ -611,38 +620,26 @@ def load_split_data(args):
         print(X.describe())
         compute_upper_bounds(data)
 
-    scaler = make_scaler()
-    feature_names = X.columns
-    X = scaler.fit_transform(X)
-
-    output_names = Y.columns
-    output_index = Y.index
-    Y = Y.values
-
-    dataset = helpers.general.DataSet(X, Y, splits, feature_names, output_names, output_index)
+    dataset = helpers.general.DataSet(X.values, Y.values, splits, X.columns, Y.columns, Y.index)
     return dataset
 
 
 def experiment_elastic_net(dataset, feature_importance=True):
-    model = sklearn.linear_model.ElasticNet(0.01)
+    model = with_scaler(sklearn.linear_model.ElasticNet(0.01), "en")
     cross_validate(dataset, model)
 
     if feature_importance:
         model.fit(dataset.inputs, dataset.outputs)
 
         feature_importances = collections.Counter()
-        for fname, fweight in zip(dataset.feature_names, helpers.sk.get_lr_importances(model)):
+        for fname, fweight in zip(dataset.feature_names, helpers.sk.get_lr_importances(model.named_steps("en"))):
             feature_importances[fname] = fweight
         print("Feature potentials from ElasticNet (max of abs per-output coefs)")
         pprint(feature_importances.most_common())
 
 
-def make_scaler():
-    pipe = [("scaler", helpers.sk.ClippedRobustScaler())]
-    # pipe = [("scaler", sklearn.preprocessing.RobustScaler())]
-
-    preprocessing_pipeline = sklearn.pipeline.Pipeline(pipe)
-    return preprocessing_pipeline
+def with_scaler(model, name):
+    return sklearn.pipeline.Pipeline([("scaler", helpers.sk.ClippedRobustScaler()), (name, model)])
 
 
 def make_blr(**kwargs):
