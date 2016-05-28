@@ -287,7 +287,10 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         dest_name = "FTL_" + ftl_type
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
-        add_lag_feature(event_sampled_df, dest_name, 24, "2h")
+        add_lag_feature(event_sampled_df, dest_name, 2 * 12, "2h")
+        add_lag_feature(event_sampled_df, dest_name, 8 * 12, "8h")
+        add_lag_feature(event_sampled_df, dest_name, -12 * 2, "next2h")
+        # add_lag_feature(event_sampled_df, dest_name, -12 * 8, "next8h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     ### EVTF ###
@@ -297,6 +300,10 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         dest_name = "EVTF_IN_" + event_name
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
+        add_lag_feature(event_sampled_df, dest_name, 12 * 8, "8h")
+        # add_lag_feature(event_sampled_df, dest_name, 12 * 32, "32h")
+        add_lag_feature(event_sampled_df, dest_name, -12 * 8, "next8h")
+        add_lag_feature(event_sampled_df, dest_name, -12 * 32, "next32h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     # event_sampled_df["EVTF_EARTH_LOS"] = get_earth_los(event_data, event_sampled_df.index).rolling(12, min_periods=0).mean()
@@ -312,6 +319,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     event_data["EVTF_altitude"] = altitude_series
     add_lag_feature(event_data, "EVTF_event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(event_data, "EVTF_event_counts", 5, "5h", data_type=numpy.int64)
+    add_lag_feature(event_data, "EVTF_event_counts", 16, "16h", data_type=numpy.int64)
+    # add_lag_feature(event_data, "EVTF_event_counts", -5, "next5h", data_type=numpy.int64)
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
@@ -324,6 +333,10 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     for subsys in "PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB VVV SXX".split():
         dest_name = "DMOP_{}_event_count".format(subsys)
         event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
+        add_lag_feature(event_sampled_df, dest_name, 12 * 12, "12h")
+        # add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
+        add_lag_feature(event_sampled_df, dest_name, -12 * 12, "next12h")
 
     # subsystems with the command included just for a few
     # dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
@@ -337,6 +350,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     dmop_data = dmop_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
     add_lag_feature(dmop_data, "DMOP_event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(dmop_data, "DMOP_event_counts", 5, "5h", data_type=numpy.int64)
+    add_lag_feature(dmop_data, "DMOP_event_counts", 12, "12h", data_type=numpy.int64)
+    # add_lag_feature(dmop_data, "DMOP_event_counts", -5, "next5h", data_type=numpy.int64)
 
 
     ### SAAF ###
@@ -378,6 +393,11 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
             saaf_quartiles.append(rolling_count)
 
     saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1).reindex(data.index, method="nearest")
+
+    for col in saaf_quartile_df.columns:
+        # add_lag_feature(saaf_quartile_df, col, 4, "4h")
+        # add_lag_feature(saaf_quartile_df, col, 12, "12h")
+        add_lag_feature(saaf_quartile_df, col, 48, "48h", drop=True)
 
     # 3 delays because 60 min / 5 min = 12
     # for col in ["sx", "sy", "sz", "sa"]:
@@ -453,7 +473,6 @@ def make_nn(history_file=None, **kwargs):
                                        input_dropout=0.02,
                                        hidden_units=200,
                                        early_stopping=True,
-                                       val=0.1,
                                        l2=0.0001,
                                        maxnorm=True,
                                        history_file=history_file,
@@ -491,7 +510,7 @@ def experiment_neural_network(dataset, tune_params=False):
         wrapped_model.print_tuning_scores()
 
 
-def make_rnn(history_file=None, augment_output=False, time_steps=4, non_negative=False):
+def make_rnn(history_file=None, time_steps=4, non_negative=False):
     """Make a recurrent neural network with reasonable default args for this task"""
     model = helpers.neural.RnnRegressor(learning_rate=7e-4,
                                         num_units=50,
@@ -499,7 +518,7 @@ def make_rnn(history_file=None, augment_output=False, time_steps=4, non_negative
                                         batch_size=64,
                                         num_epochs=300,
                                         verbose=0,
-                                        input_noise=0.1,
+                                        input_noise=0.05,
                                         input_dropout=0.02,
                                         early_stopping=True,
                                         recurrent_dropout=0.65,
@@ -527,7 +546,7 @@ def with_non_negative(model):
 
 @helpers.general.Timed
 def experiment_rnn(dataset, tune_params=False, time_steps=4):
-    model = make_rnn(time_steps=time_steps, augment_output=True)
+    model = make_rnn(time_steps=time_steps)
     cross_validate(dataset, model)
 
     if tune_params:
@@ -535,15 +554,15 @@ def experiment_rnn(dataset, tune_params=False, time_steps=4):
             "learning_rate": helpers.sk.RandomizedSearchCV.uniform(5e-3, 5e-4),
             # "lr_decay": [0.999, 1],
             # "num_units": [25, 50, 100],
-            "dropout": helpers.sk.RandomizedSearchCV.uniform(0.35, 0.65),
+            # "dropout": helpers.sk.RandomizedSearchCV.uniform(0.35, 0.65),
             "recurrent_dropout": helpers.sk.RandomizedSearchCV.uniform(0.4, 0.7),
-            # "time_steps": [4, 8],
-            "input_dropout": [0.02, 0.04],
-            "non_negative": [True]
+            "time_steps": [8],
+            # "input_dropout": [0.02, 0.04],
+            # "non_negative": [True]
         }
         hyperparams = {"estimator__" + k: v for k, v in hyperparams.items()}
 
-        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=4, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
+        wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=8, n_jobs=1, scoring=rms_error, refit=False, cv=dataset.splits)
 
         wrapped_model.fit(dataset.inputs, dataset.outputs)
         wrapped_model.print_tuning_scores()

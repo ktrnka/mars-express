@@ -34,7 +34,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
 
-    test_input_noise(dataset)
+    test_tree_methods(dataset)
 
 
 def test_features(dataset):
@@ -42,6 +42,40 @@ def test_features(dataset):
 
     model = sklearn.linear_model.LinearRegression()
     rfe_slow(dataset, model, rms_error)
+
+
+def test_ewma_output(dataset):
+    print("MLP with EWMA")
+    model = make_nn()
+    model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_ewma_outputs(num_spans=1))
+    cross_validate(dataset, model)
+
+    print("MLP")
+    model = make_nn()
+    cross_validate(dataset, model)
+
+def test_tree_methods(dataset):
+    import sklearn.ensemble
+
+    model = sklearn.ensemble.RandomForestRegressor(200, max_depth=30, min_samples_split=20, n_jobs=2)
+    cross_validate(dataset, model)
+
+def test_skflow(dataset):
+    import tensorflow.contrib.learn as skflow
+    import tensorflow as tf
+
+    batch_size = 256
+    s2e = dataset.inputs.shape[0] / float(batch_size)
+
+    def decay_function(global_step):
+        return tf.train.exponential_decay(learning_rate=0.004, global_step=global_step, decay_steps=int(s2e), decay_rate=0.99, staircase=True)
+
+    print("TensorFlow Learn MLP")
+    model = skflow.TensorFlowDNNRegressor(hidden_units=[200], batch_size=batch_size, steps=int(s2e * 500), optimizer="Adam", dropout=0.5, learning_rate=decay_function)
+    cross_validate(dataset, model)
+
+    print("MLP")
+    cross_validate(dataset, make_nn())
 
 
 def test_rnn_relu(dataset):
@@ -56,12 +90,17 @@ def test_rnn_relu(dataset):
 
 
 def test_input_noise(dataset):
-    print("RNN with half input noise")
+    print("RNN with half input noise 2%")
     model = make_rnn()
-    model.estimator.input_noise /= 2.
+    model.estimator.input_noise = 0.02
     cross_validate(dataset, model)
 
-    print("RNN base")
+    print("RNN with half input noise 1%")
+    model = make_rnn()
+    model.estimator.input_noise = 0.01
+    cross_validate(dataset, model)
+
+    print("RNN base 5% now")
     model = make_rnn()
     cross_validate(dataset, model)
 
@@ -202,6 +241,10 @@ def test_stateful_rnn(dataset):
 
 
 def test_realistic_rnns(dataset, num_clones=2):
+    # print("Base regular")
+    # base_model = with_non_negative(make_rnn(time_steps=4))
+    # cross_validate(dataset, base_model)
+
     for time_steps in [4, 8]:
         print("Time={} RNNx{}".format(time_steps, num_clones))
         base_model = with_non_negative(make_rnn(time_steps=time_steps))
