@@ -90,7 +90,7 @@ def save_history(model, output_file):
         print("Not saving model learning curve graph cause it doesn't exist")
 
 
-def predict_test_data(X_train, Y_train, scaler, args):
+def predict_test_data(X_train, Y_train, args):
     # retrain baseline model as a sanity check
     baseline_model = sklearn.dummy.DummyRegressor("mean").fit(X_train, Y_train)
 
@@ -110,7 +110,6 @@ def predict_test_data(X_train, Y_train, scaler, args):
 
     test_data = load_data(args.testing_dir)
     X_test, Y_test = separate_output(test_data)
-    X_test = scaler.transform(X_test)
 
     Y_pred = model.predict(X_test)
     test_data[Y_train.columns] = Y_pred
@@ -162,11 +161,7 @@ def main():
 
     X_train, Y_train = separate_output(train_data)
 
-    scaler = make_scaler()
-
-    X_train = scaler.fit_transform(X_train)
-
-    predict_test_data(X_train, Y_train, scaler, args)
+    predict_test_data(X_train, Y_train, args)
 
 
 if __name__ == "__main__":
