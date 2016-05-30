@@ -1,8 +1,6 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
-import io
-
 from train_test import *
 
 
@@ -15,10 +13,12 @@ def parse_args():
     parser.add_argument("training_dir", help="Dir with the training CSV files or joined CSV file with the complete feature matrix")
     return parser.parse_args()
 
-def test_models(dataset, name):
+def test_models(dataset, name, with_nn=True):
     print("Selecting features with {}, {} features".format(name, dataset.inputs.shape[1]))
     cross_validate(dataset, with_scaler(sklearn.linear_model.ElasticNet(0.001), "en"))
-    cross_validate(dataset, with_scaler(make_nn()[0], "nn"))
+
+    if with_nn:
+        cross_validate(dataset, with_scaler(make_nn()[0], "nn"))
 
 
 def test_simple(dataset, num_features):
@@ -62,7 +62,7 @@ def test_select_from_en(dataset, num_features):
 
 
 def test_select_from_rf(dataset, num_features):
-    model = sklearn.ensemble.RandomForestRegressor(40, min_samples_split=20)
+    model = sklearn.ensemble.RandomForestRegressor(40, max_depth=20)
     model.fit(dataset.inputs, dataset.outputs.sum(axis=1))
 
     reduced_dataset = dataset.select_features(num_features, model.feature_importances_, verbose=1)
@@ -101,7 +101,7 @@ def main():
 
     print("Baselines")
     cross_validate(dataset, sklearn.dummy.DummyRegressor())
-    test_models(dataset, "baseline")
+    test_models(dataset, "baseline", with_nn=False)
 
     tuning_splits = sklearn.cross_validation.KFold(dataset.inputs.shape[0], 3, False)
 
