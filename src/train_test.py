@@ -6,6 +6,7 @@ import collections
 import logging
 import os
 import sys
+from operator import itemgetter
 from pprint import pprint
 
 import numpy
@@ -274,6 +275,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(longterm_data, col, 24, "1d")
         add_lag_feature(longterm_data, col, 4 * 24, "4d")
         add_lag_feature(longterm_data, col, 16 * 24, "16d")
+        add_lag_feature(longterm_data, col, 64 * 24, "64d")
 
     # time-lagged version
     # add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)
@@ -295,6 +297,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         add_lag_feature(event_sampled_df, dest_name, 2 * 12, "2h")
         add_lag_feature(event_sampled_df, dest_name, 8 * 12, "8h")
+        add_lag_feature(event_sampled_df, dest_name, 4 * 24 * 12, "4d")
+        add_lag_feature(event_sampled_df, dest_name, 16 * 24 * 12, "16d")
         add_lag_feature(event_sampled_df, dest_name, -12 * 2, "next2h")
         # add_lag_feature(event_sampled_df, dest_name, -12 * 8, "next8h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
@@ -354,6 +358,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(event_sampled_df, dest_name, 12 * 16, "16h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 4, "4d")
         add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 16, "16d")
+        add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 64, "64d")
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
@@ -596,6 +601,26 @@ def main():
 
     experiment_elastic_net(dataset, feature_importance=True)
 
+    num_features = 20
+
+    while dataset.inputs.shape[1] > num_features * 2:
+        model = helpers.sk.MultivariateBaggingRegressor(with_scaler(sklearn.linear_model.Ridge(), "rr"), max_features=32, n_estimators=5000)
+
+        feature_scores = model.evaluate_features_cv(dataset.inputs, dataset.outputs, dataset.splits)
+        for feature, score in sorted(feature_scores.items(), key=itemgetter(1), reverse=True):
+            print("{} [{}]: {}".format(dataset.feature_names[feature], feature, score))
+
+        # pick the best 50%
+        included = sorted(feature_scores.items(), key=itemgetter(1), reverse=False)[:dataset.inputs.shape[1] / 2]
+        included = set(f for f, _ in included)
+        selector = numpy.asarray([i in included for i in range(dataset.inputs.shape[1])])
+
+        dataset.inputs = dataset.inputs[:, selector]
+        dataset.feature_names = dataset.feature_names[selector]
+
+        print("Selected {} features".format(dataset.inputs.shape[1]))
+        experiment_elastic_net(dataset, feature_importance=False)
+
     experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
 
     experiment_rnn(dataset, tune_params=True and args.analyse_hyperparameters, time_steps=args.time_steps)
@@ -632,7 +657,7 @@ def experiment_elastic_net(dataset, feature_importance=True):
         model.fit(dataset.inputs, dataset.outputs)
 
         feature_importances = collections.Counter()
-        for fname, fweight in zip(dataset.feature_names, helpers.sk.get_lr_importances(model.named_steps("en"))):
+        for fname, fweight in zip(dataset.feature_names, helpers.sk.get_lr_importances(model.named_steps["en"])):
             feature_importances[fname] = fweight
         print("Feature potentials from ElasticNet (max of abs per-output coefs)")
         pprint(feature_importances.most_common())
