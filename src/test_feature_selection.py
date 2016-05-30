@@ -70,7 +70,7 @@ def test_select_from_en_cv(dataset, num_features, splits):
         scores.append(abs(model.named_steps["en"].coef_))
 
     score_matrix = numpy.vstack(scores)
-    coefs = score_matrix.mean(axis=0) - 0.2 * score_matrix.std(axis=0)
+    coefs = score_matrix.mean(axis=0) - 0.05 * score_matrix.std(axis=0)
 
     reduced_dataset = dataset.select_features(num_features, coefs, verbose=1)
     test_models(reduced_dataset, "CV(ElasticNet(sum))")
@@ -98,9 +98,9 @@ def test_rfecv_en(dataset, num_features, tuning_splits):
 def test_subspace_selection(dataset, num_features, splits):
     orig_num_features = dataset.inputs.shape[1]
     while dataset.inputs.shape[1] > num_features * 2:
-        model = helpers.sk.MultivariateBaggingRegressor(with_scaler(sklearn.linear_model.Ridge(), "rr"), max_features=5, n_estimators=orig_num_features)
+        model = helpers.sk.MultivariateBaggingRegressor(with_scaler(sklearn.linear_model.Ridge(), "rr"), max_features=16, n_estimators=orig_num_features)
         feature_scores = model.evaluate_features_cv(dataset.inputs, dataset.outputs, splits)
-        dataset = dataset.select_features(0.75, feature_scores, higher_is_better=False)
+        dataset = dataset.select_features(0.5, feature_scores, higher_is_better=False)
 
     model = helpers.sk.MultivariateBaggingRegressor(with_scaler(sklearn.linear_model.Ridge(), "rr"), max_features=num_features, n_estimators=orig_num_features)
     feature_scores = model.evaluate_features_cv(dataset.inputs, dataset.outputs, splits)
@@ -118,7 +118,7 @@ def main():
     cross_validate(dataset, sklearn.dummy.DummyRegressor())
     test_models(dataset, "baseline", with_nn=False)
 
-    tuning_splits = sklearn.cross_validation.KFold(dataset.inputs.shape[0], 5, False)
+    tuning_splits = sklearn.cross_validation.KFold(dataset.inputs.shape[0], 3, False)
 
     test_simple_multivariate(dataset, args.num_features)
     test_simple(dataset, args.num_features)
