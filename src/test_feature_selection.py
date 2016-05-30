@@ -16,7 +16,7 @@ def parse_args():
     return parser.parse_args()
 
 def test_models(dataset, name):
-    print("Testing models with {}, {} features".format(name, dataset.inputs.shape[1]))
+    print("Selecting features with {}, {} features".format(name, dataset.inputs.shape[1]))
     cross_validate(dataset, with_scaler(sklearn.linear_model.ElasticNet(0.001), "en"))
     cross_validate(dataset, with_scaler(make_nn()[0], "nn"))
 
@@ -30,7 +30,7 @@ def test_simple(dataset, num_features):
     reduced_dataset = dataset.select_features(num_features, selector.scores_)
 
     # try a couple simple models
-    test_models(reduced_dataset, "select from predicting mean")
+    test_models(reduced_dataset, "f_regression(sum)")
 
 
 def test_simple_multivariate(dataset, num_features):
@@ -50,7 +50,7 @@ def test_simple_multivariate(dataset, num_features):
     reduced_dataset = dataset.select_features(num_features, scores)
 
     # try a couple simple models
-    test_models(reduced_dataset, "select from predicting each output")
+    test_models(reduced_dataset, "f_regression(multivariate)")
 
 
 def test_select_from_en(dataset, num_features):
@@ -58,7 +58,7 @@ def test_select_from_en(dataset, num_features):
     model.fit(dataset.inputs, dataset.outputs.sum(axis=1))
 
     reduced_dataset = dataset.select_features(num_features, abs(model.named_steps["en"].coef_), verbose=1)
-    test_models(reduced_dataset, "select from elastic net predicting sum")
+    test_models(reduced_dataset, "ElasticNet(sum)")
 
 
 def test_select_from_rf(dataset, num_features):
@@ -66,34 +66,32 @@ def test_select_from_rf(dataset, num_features):
     model.fit(dataset.inputs, dataset.outputs.sum(axis=1))
 
     reduced_dataset = dataset.select_features(num_features, model.feature_importances_, verbose=1)
-    test_models(reduced_dataset, "select from random forest")
+    test_models(reduced_dataset, "RandomForest(sum)")
 
 
-def test_rfecv_en(dataset, num_features):
+def test_rfecv_en(dataset, num_features, tuning_splits):
     model = sklearn.linear_model.ElasticNet(0.001)
-    selector = sklearn.feature_selection.RFECV(model, cv=3, scoring=rms_error)
+    selector = sklearn.feature_selection.RFECV(model, cv=tuning_splits, step=2, scoring=rms_error)
 
     X = helpers.sk.ClippedRobustScaler().fit_transform(dataset.inputs)
     selector.fit(X, dataset.outputs.mean(axis=1))
 
     reduced_dataset = dataset.select_features(num_features, selector.ranking_, higher_is_better=False, verbose=1)
-    test_models(reduced_dataset, "select from elastic net predicting sum")
+    test_models(reduced_dataset, "RFECV(ElasticNet(sum))")
 
 
-def test_subspace_selection(dataset, num_features):
+def test_subspace_selection(dataset, num_features, splits):
     orig_num_features = dataset.inputs.shape[1]
     while dataset.inputs.shape[1] > num_features * 2:
         model = helpers.sk.MultivariateBaggingRegressor(with_scaler(sklearn.linear_model.Ridge(), "rr"), max_features=num_features, n_estimators=orig_num_features)
-        feature_scores = model.evaluate_features_cv(dataset.inputs, dataset.outputs, dataset.splits)
+        feature_scores = model.evaluate_features_cv(dataset.inputs, dataset.outputs, splits)
         dataset = dataset.select_features(dataset.inputs.shape[1] / 2, feature_scores, higher_is_better=False)
 
     model = helpers.sk.MultivariateBaggingRegressor(with_scaler(sklearn.linear_model.Ridge(), "rr"), max_features=num_features, n_estimators=orig_num_features)
-    feature_scores = model.evaluate_features_cv(dataset.inputs, dataset.outputs, dataset.splits)
+    feature_scores = model.evaluate_features_cv(dataset.inputs, dataset.outputs, splits)
     dataset = dataset.select_features(num_features, feature_scores, higher_is_better=False)
 
-    test_models(dataset, "random subset method")
-
-
+    test_models(dataset, "subspace elimination")
 
 
 def main():
@@ -105,20 +103,15 @@ def main():
     cross_validate(dataset, sklearn.dummy.DummyRegressor())
     test_models(dataset, "baseline")
 
+    tuning_splits = sklearn.cross_validation.KFold(dataset.inputs.shape[0], 3, False)
+
     test_simple_multivariate(dataset, args.num_features)
     test_simple(dataset, args.num_features)
 
-    # select from elasticnet
     test_select_from_en(dataset, args.num_features)
     test_select_from_rf(dataset, args.num_features)
-    test_rfecv_en(dataset, args.num_features)
-    test_subspace_selection(dataset, args.num_features)
-
-    # rfe on elasticnet
-
-    # my rfe
-
-    # my new method
+    test_rfecv_en(dataset, args.num_features, tuning_splits)
+    test_subspace_selection(dataset, args.num_features, tuning_splits)
 
 if __name__ == "__main__":
     sys.exit(main())
