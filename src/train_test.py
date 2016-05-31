@@ -271,36 +271,24 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     one_way_latency = get_communication_latency(longterm_data)
 
-    for col in longterm_data.columns:
-        add_lag_feature(longterm_data, col, 24, "1d")
-        add_lag_feature(longterm_data, col, 4 * 24, "4d")
-        add_lag_feature(longterm_data, col, 16 * 24, "16d")
-        add_lag_feature(longterm_data, col, 64 * 24, "64d")
-
     # time-lagged version
-    # add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)
-    # add_lag_feature(longterm_data, "eclipseduration_min", 5 * 24, "5d", data_type=numpy.int64)
+    add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)
+    add_lag_feature(longterm_data, "eclipseduration_min", 5 * 24, "5d", data_type=numpy.int64)
 
     ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
 
     event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
     add_lag_feature(event_sampled_df, "flagcomms", 12, "1h")
-    add_lag_feature(event_sampled_df, "flagcomms", 2 * 12, "2h")
-    add_lag_feature(event_sampled_df, "flagcomms", 8 * 12, "8h")
+    add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
     event_sampled_df.drop("flagcomms", axis=1, inplace=True)
 
     # select columns or take preselected ones
-    for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK"]:
+    for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK", "RADIO_SCIENCE"]:
         dest_name = "FTL_" + ftl_type
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
-        add_lag_feature(event_sampled_df, dest_name, 2 * 12, "2h")
-        add_lag_feature(event_sampled_df, dest_name, 8 * 12, "8h")
-        add_lag_feature(event_sampled_df, dest_name, 4 * 24 * 12, "4d")
-        add_lag_feature(event_sampled_df, dest_name, 16 * 24 * 12, "16d")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 2, "next2h")
-        # add_lag_feature(event_sampled_df, dest_name, -12 * 8, "next8h")
+        add_lag_feature(event_sampled_df, dest_name, 24, "2h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     ### EVTF ###
@@ -310,10 +298,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         dest_name = "EVTF_IN_" + event_name
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 8, "8h")
-        # add_lag_feature(event_sampled_df, dest_name, 12 * 32, "32h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 8, "next8h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 32, "next32h")
+        if event_name == "MAR_UMBRA":
+            add_lag_feature(event_sampled_df, dest_name, 8 * 12, "8h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     # event_sampled_df["EVTF_EARTH_LOS"] = get_earth_los(event_data, event_sampled_df.index).rolling(12, min_periods=0).mean()
@@ -329,8 +315,6 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     event_data["EVTF_altitude"] = altitude_series
     add_lag_feature(event_data, "EVTF_event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(event_data, "EVTF_event_counts", 5, "5h", data_type=numpy.int64)
-    add_lag_feature(event_data, "EVTF_event_counts", 16, "16h", data_type=numpy.int64)
-    # add_lag_feature(event_data, "EVTF_event_counts", -5, "next5h", data_type=numpy.int64)
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
@@ -339,35 +323,23 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
 
     # these subsystems were found partly by trial and error
-    for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:15]:
-    # for subsys in "PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB VVV SXX".split():
+    # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
+    for subsys in "AAA PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB VVV SXX".split():
         dest_name = "DMOP_{}_event_count".format(subsys)
         event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
-        add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 12, "12h")
-        # add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 12, "next12h")
 
     # subsystems with the command included just for a few
-    dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
+    # dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
     # for subsys in "MMM_F10A0 OOO_F68A0 MMM_F40C0 ACF_E05A PSF_38A1 ACF_M07A ACF_M01A ACF_M06A".split():
-    for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
-        dest_name = "DMOP_{}_event_count".format(subsys)
-        event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
-        add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 16, "16h")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 4, "4d")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 16, "16d")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 64, "64d")
+    # # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
+    #     dest_name = "DMOP_{}_event_count".format(subsys)
+    #     event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
     dmop_data = dmop_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
     add_lag_feature(dmop_data, "DMOP_event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(dmop_data, "DMOP_event_counts", 5, "5h", data_type=numpy.int64)
-    add_lag_feature(dmop_data, "DMOP_event_counts", 12, "12h", data_type=numpy.int64)
-    # add_lag_feature(dmop_data, "DMOP_event_counts", -5, "next5h", data_type=numpy.int64)
-
 
     ### SAAF ###
     saaf_data = load_series(find_files(data_dir, "saaf"))
@@ -378,43 +350,41 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     saaf_periods = 30
 
     saaf_quartiles = []
-    for col in ["sx", "sy", "sz", "sa"]:
-        quartile_indicator_df = pandas.get_dummies(pandas.qcut(saaf_data[col], 10), col + "_")
-        quartile_hist_df = quartile_indicator_df.rolling(saaf_periods, min_periods=1).mean()
-        saaf_quartiles.append(quartile_hist_df)
+    # for col in ["sx", "sy", "sz", "sa"]:
+    #     quartile_indicator_df = pandas.get_dummies(pandas.qcut(saaf_data[col], 10), col + "_")
+    #     quartile_hist_df = quartile_indicator_df.rolling(saaf_periods, min_periods=1).mean()
+    #     saaf_quartiles.append(quartile_hist_df)
 
-    # feature_weights = [(u'sz__(85.86, 90.0625]', 0.029773711557758643),
-    #                    (u'sa__(1.53, 5.192]', 0.018961685024380826),
-    #                    (u'sy__(89.77, 89.94]', 0.017065361875026698),
-    #                    (u'sx__(2.355, 5.298]', 0.016407419574092953),
-    #                    (u'sx__(32.557, 44.945]', 0.015424066115462104),
-    #                    (u'sz__(101.35, 107.00167]', 0.012587397977008816),
-    #                    (u'sz__(112.47, 117.565]', 0.010126162391495826),
-    #                    (u'sz__(107.00167, 112.47]', 0.0099830744754197034),
-    #                    (u'sz__(117.565, 121.039]', 0.0081198807115996485),
-    #                    (u'sa__(5.192, 18.28]', 0.0079614117402690421),
-    #                    (u'sy__(89.94, 90]', 0.0064161463399279106),
-    #                    (u'sz__(90.0625, 95.455]', 0.0060623602567580299),
-    #                    (u'sa__(0.739, 1.53]', 0.0050941311789206674),
-    #                    (u'sa__(0.198, 0.31]', 0.00064943741967410915)]
-    #
-    # for feature, weight in feature_weights:
-    #     if feature.startswith("s") and "__" in feature:
-    #         base, lower, upper = parse_cut_feature(feature)
-    #
-    #         indicators = (saaf_data[base] > lower) & (saaf_data[base] <= upper)
-    #         rolling_count = indicators.rolling(saaf_periods, min_periods=1).mean()
-    #         rolling_count.rename(feature, inplace=True)
-    #         saaf_quartiles.append(rolling_count)
+    feature_weights = [(u'sz__(85.86, 90.0625]', 0.029773711557758643),
+                       (u'sa__(1.53, 5.192]', 0.018961685024380826),
+                       (u'sy__(89.77, 89.94]', 0.017065361875026698),
+                       (u'sx__(2.355, 5.298]', 0.016407419574092953),
+                       (u'sx__(32.557, 44.945]', 0.015424066115462104),
+                       (u'sz__(101.35, 107.00167]', 0.012587397977008816),
+                       (u'sz__(112.47, 117.565]', 0.010126162391495826),
+                       (u'sz__(107.00167, 112.47]', 0.0099830744754197034),
+                       (u'sz__(117.565, 121.039]', 0.0081198807115996485),
+                       (u'sa__(5.192, 18.28]', 0.0079614117402690421),
+                       (u'sy__(89.94, 90]', 0.0064161463399279106),
+                       (u'sz__(90.0625, 95.455]', 0.0060623602567580299),
+                       (u'sa__(0.739, 1.53]', 0.0050941311789206674),
+                       (u'sa__(0.198, 0.31]', 0.00064943741967410915)]
 
-    saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1)
+    for feature, weight in feature_weights:
+        if feature.startswith("s") and "__" in feature:
+            base, lower, upper = parse_cut_feature(feature)
 
-    for col in saaf_quartile_df.columns:
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * 4, "4h")
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * 12, "12h")
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * 48, "48h")
+            indicators = (saaf_data[base] > lower) & (saaf_data[base] <= upper)
+            rolling_count = indicators.rolling(saaf_periods, min_periods=1).mean()
+            rolling_count.rename(feature, inplace=True)
+            saaf_quartiles.append(rolling_count)
 
-    saaf_quartile_df = saaf_quartile_df.reindex(data.index, method="nearest")
+    saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1).reindex(data.index, method="nearest")
+
+    # 3 delays because 60 min / 5 min = 12
+    # for col in ["sx", "sy", "sz", "sa"]:
+    #     for delay in range(1, 30):
+    #         saaf_data["{}_prev{}".format(col, delay)] = saaf_data[col].shift(delay)
 
     # convert to simple rolling mean
     saaf_data = saaf_data.rolling(saaf_periods).mean().fillna(method="bfill")
@@ -601,34 +571,14 @@ def main():
 
     experiment_elastic_net(dataset, feature_importance=True)
 
-    num_features = 20
-
-    while dataset.inputs.shape[1] > num_features * 2:
-        model = helpers.sk.MultivariateBaggingRegressor(with_scaler(sklearn.linear_model.Ridge(), "rr"), max_features=32, n_estimators=5000)
-
-        feature_scores = model.evaluate_features_cv(dataset.inputs, dataset.outputs, dataset.splits)
-        for feature, score in sorted(feature_scores.items(), key=itemgetter(1), reverse=True):
-            print("{} [{}]: {}".format(dataset.feature_names[feature], feature, score))
-
-        # pick the best 50%
-        included = sorted(feature_scores.items(), key=itemgetter(1), reverse=False)[:dataset.inputs.shape[1] / 2]
-        included = set(f for f, _ in included)
-        selector = numpy.asarray([i in included for i in range(dataset.inputs.shape[1])])
-
-        dataset.inputs = dataset.inputs[:, selector]
-        dataset.feature_names = dataset.feature_names[selector]
-
-        print("Selected {} features".format(dataset.inputs.shape[1]))
-        experiment_elastic_net(dataset, feature_importance=False)
-
     experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
 
     experiment_rnn(dataset, tune_params=True and args.analyse_hyperparameters, time_steps=args.time_steps)
 
 
-def load_split_data(args):
+def load_split_data(args, data_loader=load_data):
     """Load the data, compute cross-validation splits, scale the inputs, etc. Returns a DataSet object"""
-    data = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
+    data = data_loader(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     # cross validation by year
     splits = helpers.sk.TimeCV(data.shape[0], 10, min_training=0.7)
