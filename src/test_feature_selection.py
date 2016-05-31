@@ -54,7 +54,7 @@ def test_models(dataset, name, with_nn=False):
 
 
 def make_select_f(num_features, ewma=False):
-    def select_f(X, y):
+    def score_features_f(X, y):
         selector = sklearn.feature_selection.SelectKBest(score_func=sklearn.feature_selection.f_regression, k=num_features)
 
         if ewma:
@@ -62,7 +62,7 @@ def make_select_f(num_features, ewma=False):
         selector.fit(X, y)
         return selector.scores_
 
-    return select_f
+    return score_features_f
 
 
 def test_simple(dataset, num_features):
@@ -95,14 +95,37 @@ def test_select_from_en(dataset, num_features):
     test_models(reduced_dataset, "ElasticNet(sum)")
 
 
-def select_en(X, Y):
+def score_features_elasticnet(X, Y):
     model = with_scaler(sklearn.linear_model.ElasticNet(0.001), "en")
     model.fit(X, Y.sum(axis=1))
     return abs(model.named_steps["en"].coef_)
 
 
+def score_features_loo(X, Y, splits, scorer, std_dev_weight=-.05):
+    model = with_scaler(sklearn.linear_model.Ridge(), "ridge")
+    scores = [0 for _ in range(X.shape[1])]
+    baseline = sklearn.cross_validation.cross_val_score(model, X, Y, scoring=scorer, cv=splits).mean()
+    for i in range(X.shape[1]):
+        included = numpy.asarray([j for j in range(X.shape[1]) if j != i])
+
+        cv_scores = sklearn.cross_validation.cross_val_score(model, X[:, included], Y, scoring=scorer, cv=splits)
+        scores[i] = baseline - cv_scores.mean() + std_dev_weight * cv_scores.std()
+
+    return numpy.asarray(scores)
+
+
+def score_features_loi(X, Y, splits, scorer, std_dev_weight=-.05):
+    model = with_scaler(sklearn.linear_model.Ridge(), "ridge")
+    scores = [0 for _ in range(X.shape[1])]
+    for i in range(X.shape[1]):
+        cv_scores = sklearn.cross_validation.cross_val_score(model, X[:, [i]], Y, scoring=scorer, cv=splits)
+        scores[i] = cv_scores.mean() + std_dev_weight * cv_scores.std()
+
+    return numpy.asarray(scores)
+
+
 def test_select_from_en_cv(dataset, num_features, splits):
-    scores = cross_validated_select(dataset, splits, select_en)
+    scores = cross_validated_select(dataset, splits, score_features_elasticnet)
     reduced_dataset = dataset.select_features(num_features, scores, verbose=1)
     test_models(reduced_dataset, "CV(ElasticNet(sum))")
 
@@ -155,6 +178,16 @@ def test_rfecv_en(dataset, num_features, tuning_splits, prefilter=True):
     reduced_dataset = dataset.select_features(num_features, ensembled_weights, verbose=1)
     test_models(reduced_dataset, "Ens of RFECV+EN(ElasticNet(sum))")
 
+    ensembled_weights = abs(model.coef_) * .9 ** selector.ranking_
+    reduced_dataset = dataset.select_features(num_features, ensembled_weights, verbose=1)
+    test_models(reduced_dataset, "Ens of RFECV+EN(ElasticNet(sum)) V2")
+
+    # ensemble with leave one in
+    loi_scores = score_features_loi(dataset.inputs, dataset.outputs, tuning_splits, rms_error)
+    ensembled_weights = .9 ** loi_scores * abs(model.coef_) * .99 ** selector.ranking_
+    reduced_dataset = dataset.select_features(num_features, ensembled_weights, verbose=1)
+    test_models(reduced_dataset, "Ens of RFECV+EN+LOI(ElasticNet(sum)) V2")
+
 
 def test_subspace_selection(dataset, num_features, splits, prefilter=True):
     if prefilter:
@@ -173,6 +206,10 @@ def test_subspace_selection(dataset, num_features, splits, prefilter=True):
 
     test_models(dataset, "subspace elimination")
 
+def test_loo_loi(dataset, num_features, splits):
+    test_models(dataset.select_features(num_features, score_features_loi(dataset.inputs, dataset.outputs, splits, rms_error), verbose=1), "leave one in")
+
+    test_models(dataset.select_features(num_features, score_features_loo(dataset.inputs, dataset.outputs, splits, rms_error), verbose=1), "leave one out")
 
 def main():
     args = parse_args()
@@ -184,6 +221,8 @@ def main():
     test_models(dataset, "baseline", with_nn=False)
 
     tuning_splits = sklearn.cross_validation.KFold(dataset.inputs.shape[0], 3, False)
+
+    test_loo_loi(dataset, args.num_features, tuning_splits)
 
     test_simple_multivariate(dataset, args.num_features)
     test_select_from_cv2(dataset, args.num_features, tuning_splits)
