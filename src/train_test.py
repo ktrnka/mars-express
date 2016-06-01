@@ -213,7 +213,7 @@ def get_signal_level(filtered_event_data, index):
     return signals_sum.reindex(index, method="ffill").fillna(method="backfill")
 
 
-def event_count(event_data, index):
+def hourly_event_count(event_data, index):
     """Make a Series with the specified index that has the hourly count of events in event_data"""
     if len(event_data) == 0:
         return pandas.Series(index=index, data=0)
@@ -248,7 +248,18 @@ def auto_log(data, columns):
 
     logger.info("Changed columns: %s", changed_cols)
 
+def make_label(hours):
+    base = ""
+    if hours <= 0:
+        base = "next"
+        hours = -hours
 
+    if hours >= 24:
+        base += "{}d".format(hours / 24)
+    else:
+        base += "{}h".format(hours)
+
+    return base
 
 @helpers.general.Timed
 def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
@@ -274,6 +285,9 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     # time-lagged version
     add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)
     add_lag_feature(longterm_data, "eclipseduration_min", 5 * 24, "5d", data_type=numpy.int64)
+    add_lag_feature(longterm_data, "eclipseduration_min", 64 * 24, "64d")
+    add_lag_feature(longterm_data, "sunmars_km", 24, "1d", drop=True)
+    add_lag_feature(longterm_data, "sunmarsearthangle_deg", 24 * 64, "64d")
 
     ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
@@ -289,6 +303,9 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         add_lag_feature(event_sampled_df, dest_name, 24, "2h")
+
+        if ftl_type == "MAINTENANCE" or ftl_type == "EARTH" or ftl_type == "SLEW":
+            add_lag_feature(event_sampled_df, dest_name, -2 * 12, make_label(-2))
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     ### EVTF ###
@@ -300,6 +317,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         if event_name == "MAR_UMBRA":
             add_lag_feature(event_sampled_df, dest_name, 8 * 12, "8h")
+            add_lag_feature(event_sampled_df, dest_name, -8 * 12, "next8h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     # event_sampled_df["EVTF_EARTH_LOS"] = get_earth_los(event_data, event_sampled_df.index).rolling(12, min_periods=0).mean()
@@ -322,18 +340,44 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
 
+
     # these subsystems were found partly by trial and error
     # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
     for subsys in "AAA PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB VVV SXX".split():
         dest_name = "DMOP_{}_event_count".format(subsys)
-        event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
+    subsystem_windows = {
+        "OOO": [-4, 12],
+        "PSF": [-4],
+        "VVV": [-4],
+        "SXX": [-12],
+        "PENS": [-4],
+        "MOCE": [-4],
+    }
+    for subsys, windows in subsystem_windows.items():
+        dest_name = "DMOP_{}_event_count".format(subsys)
+        for hours in windows:
+            add_lag_feature(event_sampled_df, dest_name, hours * 12, make_label(hours))
+
+    subsystem_windows = {
+        "OOO_F77A0": 4,
+        "OOO_F68A0": 4,
+        # "ACF_M06A": 4,
+        # "ACF_E05A": 24 * 16,
+        "TTT_305O": 24 * 4,
+        "SXX_307A": 24 * 4,
+        "SXX_303A": 4,
+        "SXX_382C": 24 * 4,
+        # "PSF_31B1": 4,
+        "SSS_F53A0": 24 * 64,
+    }
     # subsystems with the command included just for a few
-    # dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
-    # for subsys in "MMM_F10A0 OOO_F68A0 MMM_F40C0 ACF_E05A PSF_38A1 ACF_M07A ACF_M01A ACF_M06A".split():
-    # # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
-    #     dest_name = "DMOP_{}_event_count".format(subsys)
-    #     event_sampled_df[dest_name] = event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+    dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
+    for subsys, hours in subsystem_windows.items():
+        dest_name = "DMOP_{}_event_count".format(subsys)
+        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        add_lag_feature(event_sampled_df, dest_name, hours * 12, make_label(hours), drop=True)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
@@ -425,7 +469,9 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
 
-    data.drop("earthmars_km", axis=1, inplace=True)
+    # data.drop([u'EVTF_event_counts', u'days_in_space', u'DMOP_PSF_event_count_rolling_next4h', u'SAAF_stddev_1d', u'DMOP_MAPO_event_count', u'DMOP_OOO_F77A0_event_count_rolling_4h', u'DMOP_MOCE_event_count', u'DMOP_event_counts_rolling_2h_gradient', u'DMOP_AAA_event_count', u'sz__(117.565, 121.039]', u'FTL_INERTIAL_rolling_1h', u'sa__(5.192, 18.28]', u'FTL_EARTH_rolling_1h_gradient', u'sa_log', u'eclipseduration_min_rolling_5d', u'sx__(32.557, 44.945]', u'EVTF_TIME_MSL_AOS_10', u'FTL_WARMUP_rolling_1h', u'sa__(1.53, 5.192]', u'sz__(85.86, 90.0625]', u'DMOP_SXX_event_count', u'DMOP_HHH_event_count', u'sz__(112.47, 117.565]', u'DMOP_event_counts_log', u'FTL_SLEW_rolling_1h', u'sy__(89.77, 89.94]', u'DMOP_PSF_event_count', u'DMOP_PENE_event_count', u'DMOP_MOCE_event_count_rolling_next4h', u'EVTF_TIME_MRB_AOS_00', u'EVTF_IN_MAR_UMBRA_rolling_next8h', u'sz__(107.00167, 112.47]', u'FTL_EARTH_rolling_next2h', u'sa__(0.739, 1.53]', u'sy__(89.94, 90]', u'EVTF_TIME_MRB_AOS_10', u'DMOP_MPER_event_count', u'DMOP_SSS_event_count', u'sz__(101.35, 107.00167]', u'sx__(2.355, 5.298]', u'DMOP_event_counts_rolling_5h', u'sz__(90.0625, 95.455]', u'sy_log', u'DMOP_TTT_event_count', u'FTL_ACROSS_TRACK_rolling_1h', u'FTL_INERTIAL_rolling_2h', u'FTL_SLEW_rolling_2h', 'eclipseduration_min', u'sa__(0.198, 0.31]', u'EVTF_IN_MAR_UMBRA_rolling_1h_rolling_50', u'eclipseduration_min_rolling_2d', u'FTL_MAINTENANCE_rolling_1h', u'FTL_NADIR_rolling_1h', u'FTL_ACROSS_TRACK_rolling_2h', u'FTL_RADIO_SCIENCE_rolling_2h'], axis=1, inplace=True)
+
+    # data.drop("earthmars_km", axis=1, inplace=True)
 
     logger.info("DataFrame shape %s", data.shape)
     return data
@@ -449,11 +495,12 @@ def make_nn(history_file=None, **kwargs):
                                        learning_rate=0.004,
                                        dropout=0.5,
                                        activation="elu",
-                                       input_noise=0.1,
+                                       input_noise=0.05,
                                        input_dropout=0.02,
                                        hidden_units=200,
                                        early_stopping=True,
                                        l2=0.0001,
+                                       val=.1,
                                        maxnorm=True,
                                        history_file=history_file,
                                        lr_decay=0.99,
@@ -583,7 +630,7 @@ def load_split_data(args, data_loader=load_data):
     # cross validation by year
     splits = helpers.sk.TimeCV(data.shape[0], 10, min_training=0.7)
     # splits = sklearn.cross_validation.KFold(train_data.shape[0], 7, shuffle=False)
-    # splits = sklearn.cross_validation.LeaveOneLabelOut(train_data["file_number"])
+    # splits = sklearn.cross_validation.LeaveOneLabelOut(data["file_number"])
 
     X, Y = separate_output(data)
     if args.verify:
@@ -600,7 +647,7 @@ def load_split_data(args, data_loader=load_data):
 
 
 def experiment_elastic_net(dataset, feature_importance=True):
-    model = with_scaler(sklearn.linear_model.ElasticNet(0.01), "en")
+    model = with_scaler(sklearn.linear_model.ElasticNet(0.001), "en")
     cross_validate(dataset, model)
 
     if feature_importance:
