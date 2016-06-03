@@ -88,9 +88,9 @@ def get_dmop_subsystem(dmop_data, include_command=False):
         return dmop_subsys.subsystem
 
 
-def get_communication_latency(lt_data):
+def get_communication_latency(earthmars_km_series):
     """Get the one-way latency for Earth-Mars communication as a Series"""
-    return pandas.to_timedelta(lt_data.earthmars_km / 2.998e+5, unit="s")
+    return pandas.to_timedelta(earthmars_km_series/ 2.998e+5, unit="s")
 
 
 def adjust_for_latency(data, latency_series, earth_sent=True):
@@ -280,7 +280,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     # as far as I can tell this doesn't make a difference but it makes me feel better
     longterm_data = longterm_data.resample("1H").mean().interpolate().fillna(method="backfill")
 
-    one_way_latency = get_communication_latency(longterm_data)
+    one_way_latency = get_communication_latency(longterm_data.earthmars_km)
 
     # time-lagged version
     add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)

@@ -2,7 +2,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 from train_test import *
-
+import scipy.stats
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -33,15 +33,14 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     # as far as I can tell this doesn't make a difference but it makes me feel better
     longterm_data = longterm_data.resample("1H").mean().interpolate().fillna(method="backfill")
 
-    one_way_latency = get_communication_latency(longterm_data)
+    one_way_latency = get_communication_latency(longterm_data.LT_earthmars_km)
 
     for col in longterm_data.columns:
         add_lag_feature(longterm_data, col, 24, "1d")
         add_lag_feature(longterm_data, col, 4 * 24, "4d")
         add_lag_feature(longterm_data, col, -4 * 24, "next4d")
         add_lag_feature(longterm_data, col, 16 * 24, "16d")
-        add_lag_feature(longterm_data, col, 64 * 24, "64d")
-
+        add_lag_feature(longterm_data, col, -16 * 24, "next16d")
 
     ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
@@ -50,6 +49,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     add_lag_feature(event_sampled_df, "FTL_flagcomms", 12, "1h")
     add_lag_feature(event_sampled_df, "FTL_flagcomms", 2 * 12, "2h")
     add_lag_feature(event_sampled_df, "FTL_flagcomms", 8 * 12, "8h")
+    add_lag_feature(event_sampled_df, "FTL_flagcomms", -8 * 12, "next8h")
     event_sampled_df.drop("FTL_flagcomms", axis=1, inplace=True)
 
     # select columns or take preselected ones
@@ -57,12 +57,11 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         dest_name = "FTL_" + ftl_type
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
-        add_lag_feature(event_sampled_df, dest_name, 2 * 12, "2h")
-        add_lag_feature(event_sampled_df, dest_name, 8 * 12, "8h")
+        add_lag_feature(event_sampled_df, dest_name, 4 * 12, "4h")
+        add_lag_feature(event_sampled_df, dest_name, 16 * 12, "16h")
         add_lag_feature(event_sampled_df, dest_name, 4 * 24 * 12, "4d")
-        add_lag_feature(event_sampled_df, dest_name, 16 * 24 * 12, "16d")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 2, "next2h")
-        # add_lag_feature(event_sampled_df, dest_name, -12 * 8, "next8h")
+        add_lag_feature(event_sampled_df, dest_name, -4 * 24 * 12, "next4d")
+        add_lag_feature(event_sampled_df, dest_name, -4 * 12, "next4h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     ### EVTF ###
@@ -74,18 +73,18 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 8, "8h")
         add_lag_feature(event_sampled_df, dest_name, -12 * 8, "next8h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 32, "next32h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     for aos_type in "MRB_AOS_10 MRB_AOS_00 MSL_AOS_10".split():
-        dest_name = "EVTF_TIME_{}".format(aos_type)
+        dest_name = "EVTF_TIME_SINCE_{}".format(aos_type)
         # time since X
         event_sampled_df[dest_name] = time_since_last_event(event_data[event_data.description == aos_type], event_sampled_df.index)
 
         # event count
         dest_name = "EVTF_COUNT_{}".format(aos_type)
         event_sampled_df[dest_name] = hourly_event_count(event_data[event_data.description == aos_type], event_sampled_df.index)
-        add_lag_feature(event_sampled_df, dest_name, 12 * 12, "12h")
+        add_lag_feature(event_sampled_df, dest_name, 4 * 12, "4h")
+        add_lag_feature(event_sampled_df, dest_name, -4 * 12, "next4h")
 
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
@@ -93,8 +92,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     event_data = event_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
     event_data["EVTF_altitude"] = altitude_series
     add_lag_feature(event_data, "EVTF_altitude", 8, "8h")
+    add_lag_feature(event_data, "EVTF_altitude", -8, "next8h")
     add_lag_feature(event_data, "EVTF_event_counts", 2, "2h")
-    add_lag_feature(event_data, "EVTF_event_counts", 5, "5h")
     add_lag_feature(event_data, "EVTF_event_counts", 16, "16h")
     add_lag_feature(event_data, "EVTF_event_counts", -16, "next16h")
 
@@ -111,32 +110,32 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 12, "12h")
         add_lag_feature(event_sampled_df, dest_name, -12 * 12, "next12h")
+        add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
 
-        dest_name = "DMOP_TIME_{}".format(subsys)
+        dest_name = "DMOP_TIME_SINCE_{}".format(subsys)
         event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     # subsystems with the command included just for a few
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
-    for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
+    for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:50]:
         dest_name = "DMOP_COUNT_{}".format(subsys)
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
         add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 8, "next8h")
+        add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 16, "16h")
+        add_lag_feature(event_sampled_df, dest_name, -12 * 16, "next16h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 4, "4d")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 16, "16d")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 64, "64d")
 
-        dest_name = "DMOP_TIME_{}".format(subsys)
+        dest_name = "DMOP_TIME_SINCE_{}".format(subsys)
         event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
     dmop_data = dmop_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
-    add_lag_feature(dmop_data, "DMOP_event_counts", 2, "2h")
-    add_lag_feature(dmop_data, "DMOP_event_counts", 5, "5h")
-    add_lag_feature(dmop_data, "DMOP_event_counts", 12, "12h")
-    add_lag_feature(dmop_data, "DMOP_event_counts", -12, "next12h")
+    add_lag_feature(dmop_data, "DMOP_event_counts", 4, "4h")
+    add_lag_feature(dmop_data, "DMOP_event_counts", -4, "next4h")
+    add_lag_feature(dmop_data, "DMOP_event_counts", 16, "16h")
+    add_lag_feature(dmop_data, "DMOP_event_counts", -16, "next16h")
 
     ### SAAF ###
     saaf_data = load_series(find_files(data_dir, "saaf"))
@@ -150,6 +149,16 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         quartile_indicator_df = pandas.get_dummies(pandas.qcut(saaf_data[col], 10), col + "_")
         quartile_hist_df = quartile_indicator_df.rolling(saaf_periods, min_periods=1).mean()
         saaf_quartiles.append(quartile_hist_df)
+
+    # Note: These DCT features don't actually get much use, maybe because they're not super stable.
+    import scipy.fftpack
+    for col in ["sx", "sy", "sz", "sa"]:
+        standardized = numpy.log(saaf_data[col] + 1)
+        resampled = standardized.resample("4H")
+
+        for i in range(3):
+            saaf_data["{}_dct{}".format(col, i)] = resampled.apply(lambda d: scipy.fftpack.dct(d * numpy.hanning(d.shape[0]), n=16, norm="ortho")[i]).reindex(saaf_data.index, method="bfill").fillna(method="ffill")
+
 
     saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1)
 
@@ -187,8 +196,14 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
             add_transformation_feature(data, col, "gradient")
         add_transformation_feature(data, "FTL_EARTH_rolling_1h", "gradient")
         add_transformation_feature(data, "DMOP_event_counts", "log", drop=True)
-        add_transformation_feature(data, "DMOP_event_counts_rolling_2h", "gradient", drop=True)
-        add_transformation_feature(data, "occultationduration_min", "log", drop=True)
+        add_transformation_feature(data, "LT_occultationduration_min", "log", drop=True)
+
+        # these features have clipping issues
+        for col in [c for c in data.columns if "TIME_SINCE" in c]:
+            data[col + "_tanh_4h"] = numpy.tanh(data[col] / (60 * 60 * 4.))
+            data[col + "_tanh_1d"] = numpy.tanh(data[col] / (60 * 60 * 24.))
+            data[col + "_tanh_10d"] = numpy.tanh(data[col] / (60 * 60 * 24. * 10))
+            data.drop(col, axis=1, inplace=True)
 
         add_transformation_feature(data, "sa", "log", drop=True)
         add_transformation_feature(data, "sy", "log", drop=True)
@@ -196,7 +211,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         # # various crazy rolling features
         add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
         add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h", 1600, "1600")
-        add_lag_feature(data, "EVTF_event_counts_rolling_5h", 50, "50")
+        add_lag_feature(data, "EVTF_event_counts_rolling_16h", 20, "20")
         # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
 
@@ -330,6 +345,8 @@ def score_features_loi(X, Y, splits, scorer, std_dev_weight=-.05):
 
     return numpy.asarray(scores)
 
+def inverse_rank_order(weights):
+    return 0.9 ** scipy.stats.rankdata(weights)
 
 def test_select_from_en_cv(dataset, num_features, splits):
     scores = cross_validated_select(dataset, splits, score_features_elasticnet)
@@ -506,14 +523,18 @@ def with_noise(dataset, noise):
     return helpers.general.DataSet(dataset.inputs * noise_multipliers, dataset.outputs, dataset.splits, dataset.feature_names, dataset.target_names, dataset.output_index)
 
 
-def test_noise_insenitivity(dataset, num_features, splits, noise=0.01, num_noise=3):
+def test_noise_insenitivity(dataset, num_features, splits, noise=0.01, num_noise=3, nonparametric=False):
     """Test the features on a model with noise variations"""
     scores = []
     for i in range(num_noise):
         scores.append(cross_validated_select(with_noise(dataset, noise), splits, score_features_elasticnet))
 
-    scores = numpy.vstack(scores).mean(axis=0)
-    test_models(dataset.select_features(num_features, scores, verbose=1), "NoisyCV_{}@{}(ElasticNet(sum))".format(num_noise, noise))
+    if nonparametric:
+        scores = [inverse_rank_order(s) for s in scores]
+
+    score_matrix = numpy.vstack(scores)
+    scores = score_matrix.mean(axis=0)
+    test_models(dataset.select_features(num_features, scores, verbose=1), "NoisyCV_{}@{}{}(ElasticNet(sum))".format(num_noise, noise, "nonpara" if nonparametric else ""))
 
 
 def main():
@@ -532,7 +553,8 @@ def main():
 
     # data size * total features * cv * num noise
     test_noise_insenitivity(dataset, args.num_features, tuning_splits)
-    test_noise_insenitivity(dataset, args.num_features, tuning_splits, num_noise=20)
+    # test_noise_insenitivity(dataset, args.num_features, tuning_splits, nonparametric=True)
+    # test_noise_insenitivity(dataset, args.num_features, tuning_splits, num_noise=20)
     test_mega_ensemble(dataset, args.num_features, tuning_splits)
 
     # data size * total features * cv * 2
