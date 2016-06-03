@@ -117,7 +117,9 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
     # subsystems with the command included just for a few
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
+    indexed_selected = collections.defaultdict(list)
     for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:50]:
+        system, command = subsys.split("_")
         dest_name = "DMOP_COUNT_{}".format(subsys)
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
         add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
@@ -128,6 +130,16 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
         dest_name = "DMOP_TIME_SINCE_{}".format(subsys)
         event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+
+        # get other commands for the same subsystem
+        for other_command in indexed_selected[system]:
+            other_subsys = "_".join([system, other_command])
+            other_time = "DMOP_TIME_SINCE_{}".format(other_subsys)
+
+            delta_name = "DMOP_TIME_SINCE_{}-{}".format(subsys, other_subsys)
+            event_sampled_df[delta_name] = event_sampled_df[dest_name] - event_sampled_df[other_time]
+
+        indexed_selected[system].append(command)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
@@ -140,6 +152,9 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     ### SAAF ###
     saaf_data = load_series(find_files(data_dir, "saaf"))
 
+    saaf_data["SAAF_interval"] = pandas.Series(data=(saaf_data.index - numpy.roll(saaf_data.index, 1))[1:].total_seconds(), index=saaf_data.index[1:])
+    saaf_data["SAAF_interval"].fillna(method="bfill", inplace=True)
+
     # try a totally different style
     saaf_data = saaf_data.resample("2Min").mean().interpolate()
     saaf_periods = 30
@@ -150,14 +165,18 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         quartile_hist_df = quartile_indicator_df.rolling(saaf_periods, min_periods=1).mean()
         saaf_quartiles.append(quartile_hist_df)
 
-    # Note: These DCT features don't actually get much use, maybe because they're not super stable.
-    import scipy.fftpack
-    for col in ["sx", "sy", "sz", "sa"]:
-        standardized = numpy.log(saaf_data[col] + 1)
-        resampled = standardized.resample("4H")
+    add_lag_feature(saaf_data, "SAAF_interval", saaf_periods * 4, "4h", drop=True)
+    # add_lag_feature(saaf_data, "SAAF_interval", saaf_periods * 24 * 4, "4d")
+    # add_lag_feature(saaf_data, "SAAF_interval", -saaf_periods * 24 * 4, "next4d")
 
-        for i in range(3):
-            saaf_data["{}_dct{}".format(col, i)] = resampled.apply(lambda d: scipy.fftpack.dct(d * numpy.hanning(d.shape[0]), n=16, norm="ortho")[i]).reindex(saaf_data.index, method="bfill").fillna(method="ffill")
+    # Note: These DCT features don't actually get much use, maybe because they're not super stable.
+    # import scipy.fftpack
+    # for col in ["sx", "sy", "sz", "sa"]:
+    #     standardized = numpy.log(saaf_data[col] + 1)
+    #     resampled = standardized.resample("4H")
+    #
+    #     for i in range(3):
+    #         saaf_data["{}_dct{}".format(col, i)] = resampled.apply(lambda d: scipy.fftpack.dct(d * numpy.hanning(d.shape[0]), n=16, norm="ortho")[i]).reindex(saaf_data.index, method="bfill").fillna(method="ffill")
 
 
     saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1)
