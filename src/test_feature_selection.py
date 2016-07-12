@@ -268,12 +268,15 @@ def ensemble_feature_scores(*scores):
     return numpy.vstack(scores).prod(axis=0)
 
 
-def test_models(dataset, name, with_nn=True):
-    print("Selecting features with {}, {} features".format(name, dataset.inputs.shape[1]))
+def test_models(dataset, name, with_nn=True, with_rnn=True):
+    print("Evaluating {}, {} features".format(name, dataset.inputs.shape[1]))
     cross_validate(dataset, with_scaler(sklearn.linear_model.ElasticNet(0.001), "en"))
 
     if with_nn:
         cross_validate(dataset, with_scaler(make_nn()[0], "nn"))
+
+    if with_rnn:
+        cross_validate(dataset, with_scaler(make_rnn(non_negative=True)[0], "rnn"))
 
 
 def make_select_f(num_features, ewma=False):
@@ -559,9 +562,14 @@ def test_noise_insenitivity(dataset, num_features, splits, noise=0.01, num_noise
 def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO)
+
+    print("Baselines (regular features)")
+    dataset = load_split_data(args, data_loader=load_inflated_data)
+    test_models(dataset, "baseline", with_nn=True, with_rnn=True)
+
     dataset = load_split_data(args, data_loader=load_inflated_data)
 
-    print("Baselines")
+    print("Baselines (new unpruned features)")
     cross_validate(dataset, sklearn.dummy.DummyRegressor())
     test_models(dataset, "baseline", with_nn=False)
 
