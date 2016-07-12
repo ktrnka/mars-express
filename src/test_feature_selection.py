@@ -1,6 +1,9 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
+import re
+import unittest
+
 from train_test import *
 import scipy.stats
 
@@ -236,6 +239,30 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
     logger.info("DataFrame shape %s", data.shape)
     return data
+
+
+def split_feature_name(name):
+    feature_pattern = re.compile(r"(.*)_((?:next)?\d+[dhm])")
+    modifier_pattern = re.compile(r"_(tan|log|rolling)(?=_|$)")
+
+    name = modifier_pattern.sub("", name)
+
+    match = feature_pattern.match(name)
+    if match:
+        return match.group(1), match.group(2)
+
+    return name, None
+
+
+class FeatureNameTests(unittest.TestCase):
+    def test_names(self):
+        self.assertSequenceEqual(("DMOP_event_counts", None), split_feature_name("DMOP_event_counts"))
+        self.assertSequenceEqual(("DMOP_event_counts", "5h"), split_feature_name("DMOP_event_counts_5h"))
+        self.assertSequenceEqual(("DMOP_event_counts", "next5h"), split_feature_name("DMOP_event_counts_next5h"))
+        self.assertSequenceEqual(("DMOP_event_counts", None), split_feature_name("DMOP_event_counts_log"))
+        self.assertSequenceEqual(("DMOP_event_counts", "next5h"), split_feature_name("DMOP_event_counts_next5h"))
+        self.assertSequenceEqual(("DMOP_event_counts", "next5h"), split_feature_name("DMOP_event_counts_next5h_log"))
+        self.assertSequenceEqual(("DMOP_event_counts", "next5h"), split_feature_name("DMOP_event_counts_log_next5h"))
 
 def cross_validated_select(dataset, splits, feature_scoring_function, std_dev_weight=-.05):
     scores = []
