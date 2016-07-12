@@ -132,12 +132,12 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
         # get other commands for the same subsystem
-        for other_command in indexed_selected[system]:
-            other_subsys = "_".join([system, other_command])
-            other_time = "DMOP_TIME_SINCE_{}".format(other_subsys)
-
-            delta_name = "DMOP_TIME_SINCE_{}-{}".format(subsys, other_subsys)
-            event_sampled_df[delta_name] = event_sampled_df[dest_name] - event_sampled_df[other_time]
+        # for other_command in indexed_selected[system]:
+        #     other_subsys = "_".join([system, other_command])
+        #     other_time = "DMOP_TIME_SINCE_{}".format(other_subsys)
+        #
+        #     delta_name = "DMOP_TIME_SINCE_{}-{}".format(subsys, other_subsys)
+        #     event_sampled_df[delta_name] = event_sampled_df[dest_name] - event_sampled_df[other_time]
 
         indexed_selected[system].append(command)
 
@@ -268,7 +268,7 @@ def ensemble_feature_scores(*scores):
     return numpy.vstack(scores).prod(axis=0)
 
 
-def test_models(dataset, name, with_nn=False):
+def test_models(dataset, name, with_nn=True):
     print("Selecting features with {}, {} features".format(name, dataset.inputs.shape[1]))
     cross_validate(dataset, with_scaler(sklearn.linear_model.ElasticNet(0.001), "en"))
 
