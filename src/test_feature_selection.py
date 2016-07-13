@@ -486,6 +486,9 @@ def test_cv_ensemble(dataset, num_features, splits):
     scores = (scores1 + .1) * (scores2 + .1)
     test_models(dataset.select_features(num_features, scores, verbose=1), "Ensemble of ENCV on both CV splits")
 
+    diversified_scores = diversify(dataset.feature_names, scores)
+    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "DIVERS Ensemble of ENCV on both CV splits")
+
 
 def test_mega_ensemble(dataset, num_features, splits, noise=0.01, noise_iter=5):
     scorers = [score_features_elasticnet]
@@ -499,6 +502,9 @@ def test_mega_ensemble(dataset, num_features, splits, noise=0.01, noise_iter=5):
 
     scores = numpy.vstack(scores).mean(axis=0)
     test_models(dataset.select_features(num_features, scores, verbose=1), "Noise*CV*model ensemble")
+
+    diversified_scores = diversify(dataset.feature_names, scores)
+    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "DIVERS Noise*CV*model ensemble")
 
 
 def test_subspace_selection(dataset, num_features, splits, prefilter=True):
@@ -534,6 +540,10 @@ def test_subspace_simple(dataset, num_features, splits, num_iter=500):
 
     dataset = dataset.select_features(num_features, best_weights)
     test_models(dataset, "subspace elimination (simplified)")
+
+    diversified_scores = diversify(dataset.feature_names, best_weights)
+    dataset = dataset.select_features(num_features, diversified_scores)
+    test_models(dataset, "DIVERS subspace elimination (simplified)")
 
 
 def test_loo_loi(dataset, num_features, splits):
@@ -591,13 +601,16 @@ def test_noise_insensitivity(dataset, num_features, splits, noise=0.01, num_nois
     scores = score_matrix.mean(axis=0)
     test_models(dataset.select_features(num_features, scores, verbose=1), "NoisyCV_{}@{}{}(ElasticNet(sum))".format(num_noise, noise, "nonpara" if nonparametric else ""))
 
+    diversified_scores = diversify(dataset.feature_names, scores)
+    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "DIVERS NoisyCV_{}@{}{}(ElasticNet(sum))".format(num_noise, noise, "nonpara" if nonparametric else ""))
+
 
 def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO)
 
     print("Baselines (regular features)")
-    dataset = load_split_data(args, data_loader=load_inflated_data)
+    dataset = load_split_data(args, data_loader=load_data)
     test_models(dataset, "baseline", with_nn=True, with_rnn=True)
 
     dataset = load_split_data(args, data_loader=load_inflated_data)
@@ -624,7 +637,7 @@ def main():
     test_select_from_en(dataset, args.num_features)
 
     # reduced features * data size * cv * iter
-    test_subspace_simple(dataset, args.num_features, tuning_splits, num_iter=500)
+    test_subspace_simple(dataset, args.num_features, tuning_splits, num_iter=100)
 
     # loi = 1 * total features * data size * cv
     # loo = total features * total - 1 * data size * cv
