@@ -2,10 +2,11 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import re
-import unittest
+
+import scipy.stats
 
 from train_test import *
-import scipy.stats
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -253,16 +254,17 @@ def split_feature_name(name):
 
     return name, None
 
+def diversify(feature_names, feature_scores):
+    """Encourage diversity by trying not to select features from the same groups quite so much"""
+    current_index = collections.defaultdict(int)
+    modifiers = dict()
 
-class FeatureNameTests(unittest.TestCase):
-    def test_names(self):
-        self.assertSequenceEqual(("DMOP_event_counts", None), split_feature_name("DMOP_event_counts"))
-        self.assertSequenceEqual(("DMOP_event_counts", "5h"), split_feature_name("DMOP_event_counts_5h"))
-        self.assertSequenceEqual(("DMOP_event_counts", "next5h"), split_feature_name("DMOP_event_counts_next5h"))
-        self.assertSequenceEqual(("DMOP_event_counts", None), split_feature_name("DMOP_event_counts_log"))
-        self.assertSequenceEqual(("DMOP_event_counts", "next5h"), split_feature_name("DMOP_event_counts_next5h"))
-        self.assertSequenceEqual(("DMOP_event_counts", "next5h"), split_feature_name("DMOP_event_counts_next5h_log"))
-        self.assertSequenceEqual(("DMOP_event_counts", "next5h"), split_feature_name("DMOP_event_counts_log_next5h"))
+    for name, score in sorted(zip(feature_names, feature_scores), key=itemgetter(1), reverse=True):
+        base_feature, time_component = split_feature_name(name)
+        modifiers[name] = 0.80 ** current_index[base_feature]
+        current_index[base_feature] += 1
+
+    return [score * modifiers[name] for name, score in zip(feature_names, feature_scores)]
 
 def cross_validated_select(dataset, splits, feature_scoring_function, std_dev_weight=-.05):
     scores = []
@@ -401,6 +403,10 @@ def test_select_from_en_cv(dataset, num_features, splits):
     scores = cross_validated_select(dataset, splits, score_features_elasticnet)
     reduced_dataset = dataset.select_features(num_features, scores, verbose=1)
     test_models(reduced_dataset, "CV(ElasticNet(sum))")
+
+    diversified_scores = diversify(dataset.feature_names, scores)
+    reduced_dataset = dataset.select_features(num_features, diversified_scores, verbose=1)
+    test_models(reduced_dataset, "DIVERSIFY! CV(ElasticNet(sum))")
 
 
 def test_select_from_cv2(dataset, num_features, splits, std_dev_weight=-.05):
@@ -572,7 +578,7 @@ def with_noise(dataset, noise):
     return helpers.general.DataSet(dataset.inputs * noise_multipliers, dataset.outputs, dataset.splits, dataset.feature_names, dataset.target_names, dataset.output_index)
 
 
-def test_noise_insenitivity(dataset, num_features, splits, noise=0.01, num_noise=3, nonparametric=False):
+def test_noise_insensitivity(dataset, num_features, splits, noise=0.01, num_noise=3, nonparametric=False):
     """Test the features on a model with noise variations"""
     scores = []
     for i in range(num_noise):
@@ -606,7 +612,7 @@ def main():
     test_select_from_en_cv(dataset, args.num_features, tuning_splits)
 
     # data size * total features * cv * num noise
-    test_noise_insenitivity(dataset, args.num_features, tuning_splits)
+    test_noise_insensitivity(dataset, args.num_features, tuning_splits)
     # test_noise_insenitivity(dataset, args.num_features, tuning_splits, nonparametric=True)
     # test_noise_insenitivity(dataset, args.num_features, tuning_splits, num_noise=20)
     test_mega_ensemble(dataset, args.num_features, tuning_splits)
