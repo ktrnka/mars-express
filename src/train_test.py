@@ -219,6 +219,8 @@ def hourly_event_count(event_data, index):
         return pandas.Series(index=index, data=0)
 
     event_counts = pandas.Series(index=event_data.index, data=event_data.index, name="date")
+
+    # TODO - needs to be next 1h to match the power resample
     event_counts = event_counts.resample("5Min").count().rolling(12).sum().bfill()
     return event_counts.reindex(index, method="nearest")
 
@@ -293,6 +295,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
 
     event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
+
+    # TODO - needs to be next 1h to match the power resample
     add_lag_feature(event_sampled_df, "flagcomms", 12, "1h")
     add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
     event_sampled_df.drop("flagcomms", axis=1, inplace=True)
@@ -301,6 +305,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK", "RADIO_SCIENCE"]:
         dest_name = "FTL_" + ftl_type
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
+
+        # TODO - needs to be next 1h to match the power resample
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         add_lag_feature(event_sampled_df, dest_name, 24, "2h")
 
@@ -314,7 +320,10 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     for event_name in ["MAR_UMBRA", "MRB_/_RANGE_06000KM", "MSL_/_RANGE_06000KM"]:
         dest_name = "EVTF_IN_" + event_name
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
+
+        # TODO - needs to be next 1h to match the power resample
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
+
         if event_name == "MAR_UMBRA":
             add_lag_feature(event_sampled_df, dest_name, 8 * 12, "8h")
             add_lag_feature(event_sampled_df, dest_name, -8 * 12, "next8h")
@@ -329,13 +338,19 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
     event_data["EVTF_event_counts"] = 1
+
+    # TODO - needs to be next 1h to match the power resample
     event_data = event_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
     event_data["EVTF_altitude"] = altitude_series
+
+    # TODO - needs to be next 1h to match the power resample
     add_lag_feature(event_data, "EVTF_event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(event_data, "EVTF_event_counts", 5, "5h", data_type=numpy.int64)
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
+
+    # TODO - this may be incorrect and might've only been a slight help because of the bug with resampling
     adjust_for_latency(dmop_data, one_way_latency)
 
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
@@ -381,6 +396,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
+
+    # TODO - needs to be next 1h to match the power resample
     dmop_data = dmop_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
     add_lag_feature(dmop_data, "DMOP_event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(dmop_data, "DMOP_event_counts", 5, "5h", data_type=numpy.int64)
@@ -419,6 +436,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
             base, lower, upper = parse_cut_feature(feature)
 
             indicators = (saaf_data[base] > lower) & (saaf_data[base] <= upper)
+
+            # TODO - needs to be next 1h to match the power resample
             rolling_count = indicators.rolling(saaf_periods, min_periods=1).mean()
             rolling_count.rename(feature, inplace=True)
             saaf_quartiles.append(rolling_count)
@@ -431,9 +450,11 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     #         saaf_data["{}_prev{}".format(col, delay)] = saaf_data[col].shift(delay)
 
     # convert to simple rolling mean
+    # TODO - needs to be next 1h to match the power resample
     saaf_data = saaf_data.rolling(saaf_periods).mean().fillna(method="bfill")
 
     # SAAF rolling stddev, took top 2 from ElasticNet
+    # TODO: This is fine cause it's a long range window
     for num_days in [1, 8]:
         saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
     saaf_data = saaf_data.reindex(data.index, method="nearest").fillna(method="bfill")
