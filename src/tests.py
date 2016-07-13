@@ -28,6 +28,12 @@ class FeatureNameTests(unittest.TestCase):
 
         # diversity pick 2
         diversified_scores = diversify(feature_names, feature_scores)
-        print(diversified_scores)
         selected_features = sorted(zip(feature_names, diversified_scores), key=itemgetter(1), reverse=True)[:2]
         self.assertSequenceEqual(["DMOP_event_counts_5h", "EVTF_event_counts_rolling_2h"], map(itemgetter(0), selected_features))
+
+        # diversity only matters when they're overlapping
+        feature_names = "DMOP_event_counts_next5h DMOP_event_counts_5h EVTF_event_counts_rolling_16h EVTF_event_counts_rolling_2h".split()
+
+        diversified_scores = diversify(feature_names, feature_scores)
+        selected_features = sorted(zip(feature_names, diversified_scores), key=itemgetter(1), reverse=True)[:2]
+        self.assertSequenceEqual(["DMOP_event_counts_5h", "DMOP_event_counts_next5h"], map(itemgetter(0), selected_features))

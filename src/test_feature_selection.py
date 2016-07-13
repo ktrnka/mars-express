@@ -254,17 +254,22 @@ def split_feature_name(name):
 
     return name, None
 
-def diversify(feature_names, feature_scores):
+
+def diversify(feature_names, feature_scores, decay=0.8):
     """Encourage diversity by trying not to select features from the same groups quite so much"""
     current_index = collections.defaultdict(int)
     modifiers = dict()
 
     for name, score in sorted(zip(feature_names, feature_scores), key=itemgetter(1), reverse=True):
         base_feature, time_component = split_feature_name(name)
-        modifiers[name] = 0.80 ** current_index[base_feature]
+        if time_component and time_component.startswith("next"):
+            base_feature += "_next"
+
+        modifiers[name] = decay ** current_index[base_feature]
         current_index[base_feature] += 1
 
     return [score * modifiers[name] for name, score in zip(feature_names, feature_scores)]
+
 
 def cross_validated_select(dataset, splits, feature_scoring_function, std_dev_weight=-.05):
     scores = []
