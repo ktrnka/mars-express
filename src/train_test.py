@@ -712,7 +712,7 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
     if derived_features:
         for col in [c for c in data.columns if "EVTF_IN_MRB" in c]:
             add_transformation_feature(data, col, "gradient")
-        add_transformation_feature(data, "FTL_EARTH_rolling_1h", "gradient")
+        add_transformation_feature(data, "FTL_EARTH_rolling_next1h", "gradient")
         add_transformation_feature(data, "DMOP_event_counts", "log", drop=True)
         add_transformation_feature(data, "DMOP_event_counts_rolling_2h", "gradient", drop=True)
         add_transformation_feature(data, "occultationduration_min", "log", drop=True)
@@ -721,11 +721,11 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
         add_transformation_feature(data, "sy", "log", drop=True)
 
         # # various crazy rolling features
-        add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
-        add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h", 1600, "1600")
+        add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_next1h", 50, "50")
+        add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_next1h", 1600, "1600")
         add_lag_feature(data, "EVTF_event_counts_rolling_5h", 50, "50")
         # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
-        add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
+        add_lag_feature(data, "FTL_NADIR_rolling_next1h", 400, "400")
 
     # data.drop([u'EVTF_event_counts', u'days_in_space', u'DMOP_PSF_event_count_rolling_next4h', u'SAAF_stddev_1d', u'DMOP_MAPO_event_count', u'DMOP_OOO_F77A0_event_count_rolling_4h', u'DMOP_MOCE_event_count', u'DMOP_event_counts_rolling_2h_gradient', u'DMOP_AAA_event_count', u'sz__(117.565, 121.039]', u'FTL_INERTIAL_rolling_1h', u'sa__(5.192, 18.28]', u'FTL_EARTH_rolling_1h_gradient', u'sa_log', u'eclipseduration_min_rolling_5d', u'sx__(32.557, 44.945]', u'EVTF_TIME_MSL_AOS_10', u'FTL_WARMUP_rolling_1h', u'sa__(1.53, 5.192]', u'sz__(85.86, 90.0625]', u'DMOP_SXX_event_count', u'DMOP_HHH_event_count', u'sz__(112.47, 117.565]', u'DMOP_event_counts_log', u'FTL_SLEW_rolling_1h', u'sy__(89.77, 89.94]', u'DMOP_PSF_event_count', u'DMOP_PENE_event_count', u'DMOP_MOCE_event_count_rolling_next4h', u'EVTF_TIME_MRB_AOS_00', u'EVTF_IN_MAR_UMBRA_rolling_next8h', u'sz__(107.00167, 112.47]', u'FTL_EARTH_rolling_next2h', u'sa__(0.739, 1.53]', u'sy__(89.94, 90]', u'EVTF_TIME_MRB_AOS_10', u'DMOP_MPER_event_count', u'DMOP_SSS_event_count', u'sz__(101.35, 107.00167]', u'sx__(2.355, 5.298]', u'DMOP_event_counts_rolling_5h', u'sz__(90.0625, 95.455]', u'sy_log', u'DMOP_TTT_event_count', u'FTL_ACROSS_TRACK_rolling_1h', u'FTL_INERTIAL_rolling_2h', u'FTL_SLEW_rolling_2h', 'eclipseduration_min', u'sa__(0.198, 0.31]', u'EVTF_IN_MAR_UMBRA_rolling_1h_rolling_50', u'eclipseduration_min_rolling_2d', u'FTL_MAINTENANCE_rolling_1h', u'FTL_NADIR_rolling_1h', u'FTL_ACROSS_TRACK_rolling_2h', u'FTL_RADIO_SCIENCE_rolling_2h'], axis=1, inplace=True)
 
@@ -880,12 +880,19 @@ def main():
     experiment_rnn(dataset, tune_params=True and args.analyse_hyperparameters, time_steps=args.time_steps)
 
 
-def load_split_data(args, data_loader=load_data):
+def load_split_data(args, data_loader=load_data, split_type="timecv"):
     """Load the data, compute cross-validation splits, scale the inputs, etc. Returns a DataSet object"""
     data = data_loader(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     # cross validation by year
-    splits = helpers.sk.TimeCV(data.shape[0], 10, min_training=0.7)
+    if split_type == "timecv":
+        splits = helpers.sk.TimeCV(data.shape[0], 10, min_training=0.7)
+    elif split_type == "years":
+        splits = sklearn.cross_validation.LeaveOneLabelOut(data["file_number"])
+    elif split_type == "alex":
+        splits = helpers.sk.WraparoundTimeCV(data.shape[0], 4, 3)
+    else:
+        raise ValueError("split_type={} unknown".format(split_type))
     # splits = sklearn.cross_validation.KFold(train_data.shape[0], 7, shuffle=False)
     # splits = sklearn.cross_validation.LeaveOneLabelOut(data["file_number"])
 

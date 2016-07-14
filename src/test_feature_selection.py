@@ -614,9 +614,14 @@ def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO)
 
-    print("Baselines (regular features)")
-    dataset = load_split_data(args, data_loader=load_data)
-    test_models(dataset, "baseline", with_nn=True, with_rnn=True)
+    for splits in "timecv years alex".split():
+        print("Baselines (regular features, {})".format(splits))
+        dataset = load_split_data(args, data_loader=load_data, split_type=splits)
+        test_models(dataset, "baseline", with_nn=True, with_rnn=True)
+
+        print("Baselines (fixed features, {})".format(splits))
+        dataset = load_split_data(args, data_loader=load_data_fixed, split_type=splits)
+        test_models(dataset, "baseline/realigned", with_nn=True, with_rnn=True)
 
     dataset = load_split_data(args, data_loader=load_inflated_data)
 
