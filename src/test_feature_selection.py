@@ -51,6 +51,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
     event_sampled_df["FTL_flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
     add_lag_feature(event_sampled_df, "FTL_flagcomms", 12, "1h")
+    add_lag_feature(event_sampled_df, "FTL_flagcomms", -12, "next1h")
     add_lag_feature(event_sampled_df, "FTL_flagcomms", 2 * 12, "2h")
     add_lag_feature(event_sampled_df, "FTL_flagcomms", 8 * 12, "8h")
     add_lag_feature(event_sampled_df, "FTL_flagcomms", -8 * 12, "next8h")
@@ -61,6 +62,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         dest_name = "FTL_" + ftl_type
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
+        add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
         add_lag_feature(event_sampled_df, dest_name, 4 * 12, "4h")
         add_lag_feature(event_sampled_df, dest_name, 16 * 12, "16h")
         add_lag_feature(event_sampled_df, dest_name, 4 * 24 * 12, "4d")
@@ -74,6 +76,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     for event_name in ["MAR_UMBRA", "MRB_/_RANGE_06000KM", "MSL_/_RANGE_06000KM"]:
         dest_name = "EVTF_IN_" + event_name
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
+        add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 8, "8h")
         add_lag_feature(event_sampled_df, dest_name, -12 * 8, "next8h")
@@ -111,6 +114,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:15]:
         dest_name = "DMOP_COUNT_{}".format(subsys)
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        event_sampled_df[dest_name + "_fixed"] = hourly_event_count_fixed(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
         add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 12, "12h")
         add_lag_feature(event_sampled_df, dest_name, -12 * 12, "next12h")
@@ -126,6 +130,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         system, command = subsys.split("_")
         dest_name = "DMOP_COUNT_{}".format(subsys)
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        event_sampled_df[dest_name + "_fixed"] = hourly_event_count_fixed(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
         add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
         add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 16, "16h")
@@ -186,6 +191,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1)
 
     for col in saaf_quartile_df.columns:
+        add_lag_feature(saaf_quartile_df, col, saaf_periods * -2, "next2h")
         add_lag_feature(saaf_quartile_df, col, saaf_periods * 4, "4h")
         add_lag_feature(saaf_quartile_df, col, saaf_periods * 12, "12h")
         add_lag_feature(saaf_quartile_df, col, saaf_periods * 48, "48h")
