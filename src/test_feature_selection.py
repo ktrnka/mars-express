@@ -5,6 +5,7 @@ import re
 
 import scipy.stats
 
+from helpers.features import roll
 from train_test import *
 
 
@@ -35,7 +36,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     longterm_data.rename(columns=lambda c: "LT_{}".format(c), inplace=True)
 
     # as far as I can tell this doesn't make a difference but it makes me feel better
-    longterm_data = longterm_data.resample("1H").mean().interpolate().fillna(method="backfill")
+    longterm_data = longterm_data.resample("1H").mean().interpolate().bfill()
 
     one_way_latency = get_communication_latency(longterm_data.LT_earthmars_km)
 
@@ -61,6 +62,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK"]:
         dest_name = "FTL_" + ftl_type
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
+
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
         add_lag_feature(event_sampled_df, dest_name, 4 * 12, "4h")
@@ -76,6 +78,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     for event_name in ["MAR_UMBRA", "MRB_/_RANGE_06000KM", "MSL_/_RANGE_06000KM"]:
         dest_name = "EVTF_IN_" + event_name
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
+
         add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 8, "8h")
@@ -84,10 +87,10 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
     for aos_type in "MRB_AOS_10 MRB_AOS_00 MSL_AOS_10".split():
         dest_name = "EVTF_TIME_SINCE_{}".format(aos_type)
-        # time since X
         event_sampled_df[dest_name] = time_since_last_event(event_data[event_data.description == aos_type], event_sampled_df.index)
 
         # event count
+        # TODO: This is calling the incorrect hourly event count
         dest_name = "EVTF_COUNT_{}".format(aos_type)
         event_sampled_df[dest_name] = hourly_event_count(event_data[event_data.description == aos_type], event_sampled_df.index)
         add_lag_feature(event_sampled_df, dest_name, 4 * 12, "4h")
@@ -96,7 +99,13 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
     event_data["EVTF_event_counts"] = 1
-    event_data = event_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
+
+    print("Event data cols", event_data.columns)
+
+    # event_data = event_data.resample("5Min").count().rolling(12).sum().bfill().reindex(data.index, method="nearest")
+    event_data = event_data.resample("5Min").count()
+    event_data = roll(event_data, -12, "sum").reindex(data.index, method="nearest")
+
     event_data["EVTF_altitude"] = altitude_series
     add_lag_feature(event_data, "EVTF_altitude", 8, "8h")
     add_lag_feature(event_data, "EVTF_altitude", -8, "next8h")
@@ -106,6 +115,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
+
+    # TODO: Should re-evaluate whether latency correction is appropriate.
     adjust_for_latency(dmop_data, one_way_latency)
 
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
@@ -115,6 +126,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         dest_name = "DMOP_COUNT_{}".format(subsys)
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
         event_sampled_df[dest_name + "_fixed"] = hourly_event_count_fixed(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+
+        # TODO: These are using the unfixed versions but should be _fixed
         add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 12, "12h")
         add_lag_feature(event_sampled_df, dest_name, -12 * 12, "next12h")
@@ -131,6 +144,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         dest_name = "DMOP_COUNT_{}".format(subsys)
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
         event_sampled_df[dest_name + "_fixed"] = hourly_event_count_fixed(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+
+        # TODO: These are using the unfixed versions but should be _fixed
         add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
         add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 16, "16h")
@@ -152,7 +167,11 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
-    dmop_data = dmop_data.resample("5Min").count().rolling(12).sum().fillna(method="bfill").reindex(data.index, method="nearest")
+
+    # dmop_data = dmop_data.resample("5Min").count().rolling(12).sum().bfill().reindex(data.index, method="nearest")
+    dmop_data = dmop_data.resample("5Min").count()
+    dmop_data = roll(dmop_data, -12, "sum").reindex(data.index, method="nearest")
+
     add_lag_feature(dmop_data, "DMOP_event_counts", 4, "4h")
     add_lag_feature(dmop_data, "DMOP_event_counts", -4, "next4h")
     add_lag_feature(dmop_data, "DMOP_event_counts", 16, "16h")
@@ -162,7 +181,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     saaf_data = load_series(find_files(data_dir, "saaf"))
 
     saaf_data["SAAF_interval"] = pandas.Series(data=(saaf_data.index - numpy.roll(saaf_data.index, 1))[1:].total_seconds(), index=saaf_data.index[1:])
-    saaf_data["SAAF_interval"].fillna(method="bfill", inplace=True)
+    saaf_data["SAAF_interval"].bfill(inplace=True)
 
     # try a totally different style
     saaf_data = saaf_data.resample("2Min").mean().interpolate()
@@ -200,12 +219,14 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     saaf_quartile_df = saaf_quartile_df.reindex(data.index, method="nearest")
 
     # convert to simple rolling mean
-    saaf_data = saaf_data.rolling(saaf_periods).mean().fillna(method="bfill")
+
+    # saaf_data = saaf_data.rolling(saaf_periods).mean().bfill()
+    saaf_data = roll(saaf_data, -saaf_periods)
 
     # SAAF rolling stddev, took top 2 from ElasticNet
     for num_days in [1, 8]:
         saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
-    saaf_data = saaf_data.reindex(data.index, method="nearest").fillna(method="bfill")
+    saaf_data = saaf_data.reindex(data.index, method="nearest").bfill()
 
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
@@ -620,14 +641,14 @@ def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO)
 
-    for splits in "timecv years alex".split():
-        print("Baselines (regular features, {})".format(splits))
-        dataset = load_split_data(args, data_loader=load_data, split_type=splits)
-        test_models(dataset, "baseline", with_nn=True, with_rnn=True)
-
-        print("Baselines (fixed features, {})".format(splits))
-        dataset = load_split_data(args, data_loader=load_data_fixed, split_type=splits)
-        test_models(dataset, "baseline/realigned", with_nn=True, with_rnn=True)
+    # for splits in "timecv years alex".split():
+    #     print("Baselines (regular features, {})".format(splits))
+    #     dataset = load_split_data(args, data_loader=load_data, split_type=splits)
+    #     test_models(dataset, "baseline", with_nn=True, with_rnn=True)
+    #
+    #     print("Baselines (fixed features, {})".format(splits))
+    #     dataset = load_split_data(args, data_loader=load_data_fixed, split_type=splits)
+    #     test_models(dataset, "baseline/realigned", with_nn=True, with_rnn=True)
 
     dataset = load_split_data(args, data_loader=load_inflated_data)
 
