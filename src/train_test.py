@@ -963,9 +963,15 @@ def make_rf():
 
 
 def cross_validate(dataset, model, n_jobs=1):
-    scores = sklearn.cross_validation.cross_val_score(model, dataset.inputs, dataset.outputs, scoring=rms_error, cv=dataset.splits, n_jobs=n_jobs)
-    print("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
-    helpers.general.get_function_logger().info("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
+    if not dataset.split_map:
+        scores = sklearn.cross_validation.cross_val_score(model, dataset.inputs, dataset.outputs, scoring=rms_error, cv=dataset.splits, n_jobs=n_jobs)
+        print("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
+        helpers.general.get_function_logger().info("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
+    else:
+        for split_name, split in dataset.split_map:
+            scores = sklearn.cross_validation.cross_val_score(model, dataset.inputs, dataset.outputs, scoring=rms_error, cv=split, n_jobs=n_jobs)
+            print("[CV={}] {}: {:.4f} +/- {:.4f}".format(split_name, helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
+            helpers.general.get_function_logger().info("[CV={}] {}: {:.4f} +/- {:.4f}".format(split_name, helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
 
 
 def separate_output(df, num_outputs=None):
