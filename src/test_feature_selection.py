@@ -221,6 +221,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     # convert to simple rolling mean
 
     # saaf_data = saaf_data.rolling(saaf_periods).mean().bfill()
+    # TODO: Try various rolling features into the past on SAAF
     saaf_data = roll(saaf_data, -saaf_periods)
 
     # SAAF rolling stddev, took top 2 from ElasticNet

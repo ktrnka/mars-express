@@ -29,7 +29,7 @@ import helpers.general
 import helpers.neural
 import helpers.sk
 from helpers.debug import verify_data, compute_cross_validation_fairness
-from helpers.features import add_lag_feature, add_transformation_feature, get_event_series, TimeRange
+from helpers.features import add_lag_feature, add_transformation_feature, get_event_series, TimeRange, roll
 from helpers.sk import rms_error
 
 
@@ -540,7 +540,6 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
 
     event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
-
     add_lag_feature(event_sampled_df, "flagcomms", -12, "next1h")
     add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
     event_sampled_df.drop("flagcomms", axis=1, inplace=True)
@@ -581,7 +580,8 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
     event_data.drop(["description"], axis=1, inplace=True)
     event_data["EVTF_event_counts"] = 1
 
-    event_data = event_data.resample("5Min").count()[::-1].rolling(12).sum().fillna(method="bfill")[::-1].reindex(data.index, method="nearest")
+    event_data = event_data.resample("5Min").count()
+    event_data = roll(event_data, -12, "sum").reindex(data.index, method="nearest")
     event_data["EVTF_altitude"] = altitude_series
 
     add_lag_feature(event_data, "EVTF_event_counts", 2, "2h", data_type=numpy.int64)
@@ -591,10 +591,9 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
     dmop_data = load_series(find_files(data_dir, "dmop"))
 
     # TODO - this may be incorrect and might've only been a slight help because of the bug with resampling
-    # adjust_for_latency(dmop_data, one_way_latency)
+    adjust_for_latency(dmop_data, one_way_latency)
 
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
-
 
     # these subsystems were found partly by trial and error
     # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
@@ -637,15 +636,15 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
 
-    dmop_data = dmop_data.resample("5Min").count()[::-1].rolling(12).sum().fillna(method="bfill")[::-1].reindex(data.index, method="nearest")
+    dmop_data = dmop_data.resample("5Min").count()
+    dmop_data = roll(dmop_data, -12, "sum").reindex(data.index, method="nearest")
+
     add_lag_feature(dmop_data, "DMOP_event_counts", 2, "2h", data_type=numpy.int64)
     add_lag_feature(dmop_data, "DMOP_event_counts", 5, "5h", data_type=numpy.int64)
 
     ### SAAF ###
     saaf_data = load_series(find_files(data_dir, "saaf"))
 
-    # try a totally different style
-    # saaf_data = saaf_data.resample("15Min").mean().interpolate().rolling(4).mean().fillna(method="bfill").reindex(data.index, method="nearest")
     saaf_data = saaf_data.resample("2Min").mean().interpolate()
     saaf_periods = 30
 
@@ -682,16 +681,10 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
 
     saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1).reindex(data.index, method="nearest")
 
-    # 3 delays because 60 min / 5 min = 12
-    # for col in ["sx", "sy", "sz", "sa"]:
-    #     for delay in range(1, 30):
-    #         saaf_data["{}_prev{}".format(col, delay)] = saaf_data[col].shift(delay)
-
     # convert to simple rolling mean
-    saaf_data = saaf_data[::-1].rolling(saaf_periods).mean().fillna(method="bfill")[::-1]
+    saaf_data = roll(saaf_data, -saaf_periods)
 
     # SAAF rolling stddev, took top 2 from ElasticNet
-    # TODO: This is fine cause it's a long range window
     for num_days in [1, 8]:
         saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
     saaf_data = saaf_data.reindex(data.index, method="nearest").fillna(method="bfill")
@@ -724,12 +717,7 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
         add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_next1h", 50, "50")
         add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_next1h", 1600, "1600")
         add_lag_feature(data, "EVTF_event_counts_rolling_5h", 50, "50")
-        # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_next1h", 400, "400")
-
-    # data.drop([u'EVTF_event_counts', u'days_in_space', u'DMOP_PSF_event_count_rolling_next4h', u'SAAF_stddev_1d', u'DMOP_MAPO_event_count', u'DMOP_OOO_F77A0_event_count_rolling_4h', u'DMOP_MOCE_event_count', u'DMOP_event_counts_rolling_2h_gradient', u'DMOP_AAA_event_count', u'sz__(117.565, 121.039]', u'FTL_INERTIAL_rolling_1h', u'sa__(5.192, 18.28]', u'FTL_EARTH_rolling_1h_gradient', u'sa_log', u'eclipseduration_min_rolling_5d', u'sx__(32.557, 44.945]', u'EVTF_TIME_MSL_AOS_10', u'FTL_WARMUP_rolling_1h', u'sa__(1.53, 5.192]', u'sz__(85.86, 90.0625]', u'DMOP_SXX_event_count', u'DMOP_HHH_event_count', u'sz__(112.47, 117.565]', u'DMOP_event_counts_log', u'FTL_SLEW_rolling_1h', u'sy__(89.77, 89.94]', u'DMOP_PSF_event_count', u'DMOP_PENE_event_count', u'DMOP_MOCE_event_count_rolling_next4h', u'EVTF_TIME_MRB_AOS_00', u'EVTF_IN_MAR_UMBRA_rolling_next8h', u'sz__(107.00167, 112.47]', u'FTL_EARTH_rolling_next2h', u'sa__(0.739, 1.53]', u'sy__(89.94, 90]', u'EVTF_TIME_MRB_AOS_10', u'DMOP_MPER_event_count', u'DMOP_SSS_event_count', u'sz__(101.35, 107.00167]', u'sx__(2.355, 5.298]', u'DMOP_event_counts_rolling_5h', u'sz__(90.0625, 95.455]', u'sy_log', u'DMOP_TTT_event_count', u'FTL_ACROSS_TRACK_rolling_1h', u'FTL_INERTIAL_rolling_2h', u'FTL_SLEW_rolling_2h', 'eclipseduration_min', u'sa__(0.198, 0.31]', u'EVTF_IN_MAR_UMBRA_rolling_1h_rolling_50', u'eclipseduration_min_rolling_2d', u'FTL_MAINTENANCE_rolling_1h', u'FTL_NADIR_rolling_1h', u'FTL_ACROSS_TRACK_rolling_2h', u'FTL_RADIO_SCIENCE_rolling_2h'], axis=1, inplace=True)
-
-    # data.drop("earthmars_km", axis=1, inplace=True)
 
     logger.info("DataFrame shape %s", data.shape)
     return data
