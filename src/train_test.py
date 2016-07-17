@@ -893,6 +893,12 @@ def load_split_data(args, data_loader=load_data, split_type="timecv"):
         splits = helpers.sk.WraparoundTimeCV(data.shape[0], 4, 3)
     else:
         raise ValueError("split_type={} unknown".format(split_type))
+
+    split_map = {
+        "last 30%": helpers.sk.TimeCV(data.shape[0], 10, min_training=0.7),
+        "years": sklearn.cross_validation.LeaveOneLabelOut(data["file_number"]),
+        "alexcv": helpers.sk.WraparoundTimeCV(data.shape[0], 4, 3)
+    }
     # splits = sklearn.cross_validation.KFold(train_data.shape[0], 7, shuffle=False)
     # splits = sklearn.cross_validation.LeaveOneLabelOut(data["file_number"])
 
@@ -906,7 +912,7 @@ def load_split_data(args, data_loader=load_data, split_type="timecv"):
         print(X.describe())
         compute_upper_bounds(data)
 
-    dataset = helpers.general.DataSet(X.values, Y.values, splits, X.columns, Y.columns, Y.index)
+    dataset = helpers.general.DataSet(X.values, Y.values, splits, X.columns, Y.columns, Y.index, split_map=split_map)
     return dataset
 
 
