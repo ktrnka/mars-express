@@ -853,7 +853,7 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO)
 
-    dataset = load_split_data(args)
+    dataset = load_split_data(args, data_loader=load_data_fixed)
 
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(dataset, baseline_model)
