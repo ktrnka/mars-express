@@ -29,13 +29,26 @@ def parse_args():
     return parser.parse_args()
 
 
+def test_mlp_ensembles(dataset):
+    print("MLP baseline")
+    model, _ = make_nn()
+    cross_validate(dataset, model)
+
+    print("MLP x 5")
+    model, _ = make_nn()
+    cross_validate(dataset, helpers.sk.AverageClonedRegressor(model, 5))
+
+    print("MLP x 5 @ 90% features")
+    model, _ = make_nn()
+    cross_validate(dataset, helpers.sk.SubspaceWrapper(model, max_features=0.9))
+
+
 def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
 
-    test_tree_methods(dataset)
-
+    test_mlp_ensembles(dataset)
 
 def test_features(dataset):
     from helpers.features import rfe_slow
