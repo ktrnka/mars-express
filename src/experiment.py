@@ -34,13 +34,13 @@ def test_mlp_ensembles(dataset):
     model, _ = make_nn()
     cross_validate(dataset, model)
 
-    print("MLP x 5")
+    print("MLP x 10")
     model, _ = make_nn()
-    cross_validate(dataset, helpers.sk.AverageClonedRegressor(model, 5))
+    cross_validate(dataset, helpers.sk.AverageClonedRegressor(model, 10))
 
-    print("MLP x 5 @ 90% features")
+    print("MLP x 10 @ 90% features")
     model, _ = make_nn()
-    cross_validate(dataset, helpers.sk.SubspaceWrapper(model, max_features=0.9))
+    cross_validate(dataset, helpers.sk.MultivariateBaggingRegressor(model, n_estimators=10, max_features=0.9))
 
 
 def main():
