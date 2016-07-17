@@ -562,7 +562,7 @@ def test_subspace_simple(dataset, num_features, splits, num_iter=500):
     best_score = None
 
     for i in range(num_iter):
-        weights = numpy.random.rand(num_features, 1).flatten()
+        weights = numpy.random.rand(dataset.inputs.shape[1], 1).flatten()
         reduced = dataset.select_features(num_features, weights)
         score = sklearn.cross_validation.cross_val_score(sklearn.linear_model.ElasticNet(0.0001), reduced.inputs, dataset.outputs, scoring=rms_error, cv=splits, n_jobs=1).mean()
 
@@ -576,6 +576,39 @@ def test_subspace_simple(dataset, num_features, splits, num_iter=500):
     diversified_scores = diversify(dataset.feature_names, best_weights)
     dataset = dataset.select_features(num_features, diversified_scores)
     test_models(dataset, "DIVERS subspace elimination (simplified)")
+
+def test_subspace_mlp(dataset, num_features, splits, num_iter=500):
+    best_weights = None
+    best_score = None
+
+    model, _ = make_nn()
+
+    feature_scores = collections.defaultdict(set)
+
+    for i in range(num_iter):
+        weights = numpy.random.rand(dataset.inputs.shape[1], 1).flatten()
+        reduced = dataset.select_features(num_features, weights)
+        score = sklearn.cross_validation.cross_val_score(model, reduced.inputs, dataset.outputs, scoring=rms_error, cv=splits, n_jobs=1).mean()
+
+        if not best_score or score > best_score:
+            best_score = score
+            best_weights = weights
+
+        # feature list
+        pairs = sorted(enumerate(weights), key=itemgetter(1), reverse=True)[:num_features]
+        for i, _ in pairs:
+            feature_scores[i].add(score)
+
+
+    dataset = dataset.select_features(num_features, best_weights)
+    test_models(dataset, "subspace testing with nn")
+
+    # second version that uses the sum
+    weights = [numpy.mean(feature_scores.get(i, {0})) for i in range(dataset.inputs.shape[1])]
+    reduced = dataset.select_features(num_features, weights)
+    test_models(reduced, "subspace testing with nn tweaked")
+
+
 
 
 def test_loo_loi(dataset, num_features, splits):
@@ -674,7 +707,8 @@ def main():
     test_select_from_en(dataset, args.num_features)
 
     # reduced features * data size * cv * iter
-    test_subspace_simple(dataset, args.num_features, tuning_splits, num_iter=100)
+    test_subspace_simple(dataset, args.num_features, tuning_splits, num_iter=500)
+    test_subspace_mlp(dataset, args.num_features, tuning_splits, num_iter=500)
 
     # loi = 1 * total features * data size * cv
     # loo = total features * total - 1 * data size * cv
