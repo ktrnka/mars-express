@@ -34,7 +34,7 @@ from helpers.sk import rms_error
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-d", "--debug", default=False, action="store_true", help="Debug logging")
 
     parser.add_argument("--time-steps", default=4, type=int, help="Number of time steps for recurrent/etc models")
