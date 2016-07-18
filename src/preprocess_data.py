@@ -8,7 +8,7 @@ from helpers.general import Timed, with_date, with_num_features, _with_extra
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
     parser.add_argument("--no-annotations", default=False, action="store_true", help="Disable date/num features annotations in the filename")
     parser.add_argument("training_dir", help="Dir with the training CSV files")

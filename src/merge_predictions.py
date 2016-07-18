@@ -6,7 +6,7 @@ import pandas
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("output_file", help="Output predictions")
     parser.add_argument("prediction_file", nargs="+", help="Two or more prediction files to be averaged.")
     return parser.parse_args()

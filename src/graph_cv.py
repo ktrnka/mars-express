@@ -20,7 +20,7 @@ Train a few models and recombine their cross-validated predictions then graph th
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--verify", default=False, action="store_true", help="Run verifications on the input data for outliers and such")
     parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
     parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")

@@ -9,7 +9,7 @@ from train_test import *
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
     parser.add_argument("--model", default="nn", help="Model to generate predictions with")
     parser.add_argument("--graph-dir", default=None, help="Generate graphs of predictions and learning curves into this dir")

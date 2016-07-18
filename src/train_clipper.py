@@ -12,7 +12,7 @@ import helpers.sk
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--resample", default=None, help="Resample the data before computing min/max.")
     parser.add_argument("training_dir", help="Dir with the training CSV files or joined CSV file with the complete feature matrix")
     parser.add_argument("clipper_file", help="Clipper saved weights (Json)")
