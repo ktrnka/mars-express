@@ -682,7 +682,7 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
     saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1).reindex(data.index, method="nearest")
 
     # convert to simple rolling mean
-    saaf_data = roll(saaf_data, -saaf_periods)
+    saaf_data = roll(saaf_data, saaf_periods)
 
     # SAAF rolling stddev, took top 2 from ElasticNet
     for num_days in [1, 8]:
@@ -956,7 +956,7 @@ def cross_validate(dataset, model, n_jobs=1):
         print("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
         helpers.general.get_function_logger().info("{}: {:.4f} +/- {:.4f}".format(helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
     else:
-        for split_name, split in dataset.split_map:
+        for split_name, split in dataset.split_map.items():
             scores = sklearn.cross_validation.cross_val_score(model, dataset.inputs, dataset.outputs, scoring=rms_error, cv=split, n_jobs=n_jobs)
             print("[CV={}] {}: {:.4f} +/- {:.4f}".format(split_name, helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
             helpers.general.get_function_logger().info("[CV={}] {}: {:.4f} +/- {:.4f}".format(split_name, helpers.sk.get_model_name(model), -scores.mean(), scores.std()))
