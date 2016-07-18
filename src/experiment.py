@@ -255,6 +255,13 @@ def test_stateful_rnn(dataset):
 
 
 def test_reversed_rnn(dataset):
+    # try ensemble of the two RNNs
+    print("Ensemble RNN")
+    forward_model = with_non_negative(make_rnn(time_steps=4)[0])
+    backward_model = with_non_negative(make_rnn(time_steps=4, reverse=True)[0])
+    ensemble = helpers.sk.WeightedEnsembleRegressor([forward_model, backward_model])
+    cross_validate(dataset, ensemble)
+
     print("Base MLP")
     cross_validate(dataset, with_non_negative(make_nn()[0]))
 
