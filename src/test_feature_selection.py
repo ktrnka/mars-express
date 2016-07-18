@@ -220,9 +220,14 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
     # convert to simple rolling mean
 
-    # saaf_data = saaf_data.rolling(saaf_periods).mean().bfill()
-    # TODO: Try various rolling features into the past on SAAF
-    saaf_data = roll(saaf_data, -saaf_periods)
+    saaf_data["SAAF_interval"] = roll(saaf_data["SAAF_interval"], saaf_periods)
+
+    for col in ["sx", "sy", "sz", "sa"]:
+        # next hour, prev hour, prev 4, prev 16, next 4, next 16, and 30 day averages
+        for interval in [-1, 1, -4, 4, -16, 16, -24 * 30, 24 * 30]:
+            add_lag_feature(event_sampled_df, col, saaf_periods * interval, make_label(interval))
+
+        saaf_data.drop(col, axis=1, inplace=True)
 
     # SAAF rolling stddev, took top 2 from ElasticNet
     for num_days in [1, 8]:
