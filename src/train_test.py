@@ -528,7 +528,7 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
     # as far as I can tell this doesn't make a difference but it makes me feel better
     longterm_data = longterm_data.resample("1H").mean().interpolate().fillna(method="backfill")
 
-    one_way_latency = get_communication_latency(longterm_data.earthmars_km)
+    # one_way_latency = get_communication_latency(longterm_data.earthmars_km)
 
     # time-lagged version
     add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)
@@ -592,7 +592,7 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
     dmop_data = load_series(find_files(data_dir, "dmop"))
 
     # TODO - this may be incorrect and might've only been a slight help because of the bug with resampling
-    adjust_for_latency(dmop_data, one_way_latency)
+    # adjust_for_latency(dmop_data, one_way_latency)
 
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
 
