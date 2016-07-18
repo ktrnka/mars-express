@@ -36,6 +36,7 @@ from helpers.sk import rms_error
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-d", "--debug", default=False, action="store_true", help="Debug logging")
+    parser.add_argument("-q", "--quieter", default=False, action="store_true", help="Don't show info logging messages")
 
     parser.add_argument("--time-steps", default=4, type=int, help="Number of time steps for recurrent/etc models")
     parser.add_argument("--verify", default=False, action="store_true", help="Run verifications on the input data for outliers and such")
@@ -850,6 +851,8 @@ def main():
 
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
+    elif args.quieter:
+        logging.basicConfig(level=logging.WARNING)
     else:
         logging.basicConfig(level=logging.INFO)
 
