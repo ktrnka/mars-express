@@ -262,6 +262,11 @@ def test_reversed_rnn(dataset):
     ensemble = helpers.sk.WeightedEnsembleRegressor([forward_model, backward_model])
     cross_validate(dataset, ensemble)
 
+    for forward_weight in [0.6, 0.8, 0.9]:
+        print("Ensemble RNN @ {} forwards".format(forward_weight))
+        ensemble = helpers.sk.WeightedEnsembleRegressor([forward_model, backward_model], weights=[forward_weight, 1 - forward_weight])
+        cross_validate(dataset, ensemble)
+
     print("Base MLP")
     cross_validate(dataset, with_non_negative(make_nn()[0]))
 
