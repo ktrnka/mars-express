@@ -312,7 +312,8 @@ def test_stacking(dataset):
 
     # now do a test that's stacking MLP, forwards, backwards RNN
     models = [with_non_negative(make_rnn(time_steps=4)[0]),
-              with_non_negative(make_rnn(time_steps=4, reverse=True)[0]),
+              with_non_negative(make_rnn(time_steps=8)[0]),
+              with_val(with_non_negative(make_rnn(time_steps=4, reverse=True)[0])),
               make_nn()[0]]
     for model in models:
         cross_validate(dataset, model)
@@ -347,21 +348,7 @@ def test_stacking(dataset):
     cross_validate(dataset, ensemble)
 
 
-
-
 def test_reversed_rnn(dataset):
-    # try ensemble of the two RNNs
-    print("Ensemble RNN")
-    forward_model = with_non_negative(make_rnn(time_steps=4)[0])
-    backward_model = with_non_negative(make_rnn(time_steps=4, reverse=True)[0])
-    ensemble = helpers.sk.WeightedEnsembleRegressor([forward_model, backward_model])
-    cross_validate(dataset, ensemble)
-
-    for forward_weight in [0.6, 0.8, 0.9]:
-        print("Ensemble RNN @ {} forwards".format(forward_weight))
-        ensemble = helpers.sk.WeightedEnsembleRegressor([forward_model, backward_model], weights=[forward_weight, 1 - forward_weight])
-        cross_validate(dataset, ensemble)
-
     print("Base MLP")
     cross_validate(dataset, with_non_negative(make_nn()[0]))
 
@@ -372,6 +359,15 @@ def test_reversed_rnn(dataset):
     print("Reversed RNN")
     base_model = with_non_negative(make_rnn(time_steps=4, reverse=True)[0])
     cross_validate(dataset, base_model)
+
+    # try ensemble of the two RNNs
+    forward_model = with_non_negative(make_rnn(time_steps=4)[0])
+    backward_model = with_non_negative(make_rnn(time_steps=4, reverse=True)[0])
+
+    for forward_weight in [0.5, 0.6, 0.8, 0.9]:
+        print("Ensemble RNN @ {} forwards".format(forward_weight))
+        ensemble = helpers.sk.WeightedEnsembleRegressor([forward_model, backward_model], weights=[forward_weight, 1 - forward_weight])
+        cross_validate(dataset, ensemble)
 
 
 def test_realistic_rnns(dataset, num_clones=2):
