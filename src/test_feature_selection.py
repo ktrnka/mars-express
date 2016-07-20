@@ -220,18 +220,18 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
     # convert to simple rolling mean
 
-    saaf_data["SAAF_interval"] = roll(saaf_data["SAAF_interval"], saaf_periods)
+    # saaf_data["SAAF_interval"] = roll(saaf_data["SAAF_interval"], saaf_periods)
 
     for col in ["sx", "sy", "sz", "sa"]:
         # next hour, prev hour, prev 4, prev 16, next 4, next 16, and 30 day averages
         for interval in [-1, 1, -4, 4, -16, 16, -24 * 30, 24 * 30]:
-            add_lag_feature(event_sampled_df, col, saaf_periods * interval, make_label(interval))
-
-        saaf_data.drop(col, axis=1, inplace=True)
+            add_lag_feature(saaf_data, col, saaf_periods * interval, make_label(interval))
 
     # SAAF rolling stddev, took top 2 from ElasticNet
     for num_days in [1, 8]:
         saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
+
+    saaf_data.drop(["sx", "sy", "sz", "sa"], axis=1, inplace=True)
     saaf_data = saaf_data.reindex(data.index, method="nearest").bfill()
 
     longterm_data = longterm_data.reindex(data.index, method="nearest")
@@ -261,8 +261,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
             data[col + "_tanh_10d"] = numpy.tanh(data[col] / (60 * 60 * 24. * 10))
             data.drop(col, axis=1, inplace=True)
 
-        add_transformation_feature(data, "sa", "log", drop=True)
-        add_transformation_feature(data, "sy", "log", drop=True)
+        # add_transformation_feature(data, "sa", "log", drop=True)
+        # add_transformation_feature(data, "sy", "log", drop=True)
 
         # # various crazy rolling features
         add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
@@ -723,7 +723,6 @@ def main():
 
     # data size * total features * cv * num noise
     test_noise_insensitivity(dataset, args.num_features, tuning_splits)
-    # test_noise_insenitivity(dataset, args.num_features, tuning_splits, nonparametric=True)
     # test_noise_insenitivity(dataset, args.num_features, tuning_splits, num_noise=20)
     test_mega_ensemble(dataset, args.num_features, tuning_splits)
 
@@ -745,9 +744,9 @@ def main():
     test_simple_ensemble(dataset, args.num_features, tuning_splits)
 
     # super slow methods
-    test_rfecv_en(dataset, args.num_features, tuning_splits)
-    test_subspace_selection(dataset, args.num_features, tuning_splits)
-    test_rfe_hybrid(dataset, args.num_features, tuning_splits, preselect=False)
+    # test_rfecv_en(dataset, args.num_features, tuning_splits)
+    # test_subspace_selection(dataset, args.num_features, tuning_splits)
+    # test_rfe_hybrid(dataset, args.num_features, tuning_splits, preselect=False)
 
 if __name__ == "__main__":
     sys.exit(main())
