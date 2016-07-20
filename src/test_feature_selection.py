@@ -563,9 +563,11 @@ def test_subspace_selection(dataset, num_features, splits, prefilter=True):
     test_models(dataset, "subspace elimination")
 
 
-def test_subspace_simple(dataset, num_features, splits, num_iter=500):
+def test_subspace_simple(dataset, num_features, splits, num_iter=100):
     best_weights = None
     best_score = None
+
+    all_scores = []
 
     for i in range(num_iter):
         weights = numpy.random.rand(dataset.inputs.shape[1], 1).flatten()
@@ -576,20 +578,38 @@ def test_subspace_simple(dataset, num_features, splits, num_iter=500):
             best_score = score
             best_weights = weights
 
-    dataset = dataset.select_features(num_features, best_weights)
-    test_models(dataset, "subspace elimination (simplified)")
+        pairs = sorted(enumerate(weights), key=itemgetter(1), reverse=True)[:num_features]
+        all_scores.append((score, map(itemgetter(0), pairs)))
+
+    reduced_dataset = dataset.select_features(num_features, best_weights)
+    test_models(reduced_dataset, "subspace elimination (simplified)")
 
     diversified_scores = diversify(dataset.feature_names, best_weights)
-    dataset = dataset.select_features(num_features, diversified_scores)
-    test_models(dataset, "DIVERS subspace elimination (simplified)")
+    reduced_dataset = dataset.select_features(num_features, diversified_scores)
+    test_models(reduced_dataset, "DIVERS subspace elimination (simplified)")
 
-def test_subspace_mlp(dataset, num_features, splits, num_iter=500):
+    weights = count_important_features(all_scores, dataset)
+    reduced_dataset = dataset.select_features(num_features, weights)
+    test_models(reduced_dataset, "subspace elimination, simple merger of top feature sets")
+
+
+def count_important_features(all_scores, dataset, fraction_models=0.05):
+    all_scores = sorted(all_scores, key=itemgetter(0), reverse=True)
+    feature_counts = collections.Counter()
+    for _, feature_indexes in all_scores[:int(len(all_scores) * fraction_models)]:
+        for i in feature_indexes:
+            feature_counts[i] += 1
+
+    return numpy.asarray([feature_counts[i] for i in range(dataset.inputs.shape[1])])
+
+
+def test_subspace_mlp(dataset, num_features, splits, num_iter=100):
     best_weights = None
     best_score = None
 
     model, _ = make_nn()
 
-    feature_scores = collections.defaultdict(set)
+    all_scores = []
 
     for i in range(num_iter):
         weights = numpy.random.rand(dataset.inputs.shape[1], 1).flatten()
@@ -600,19 +620,20 @@ def test_subspace_mlp(dataset, num_features, splits, num_iter=500):
             best_score = score
             best_weights = weights
 
-        # feature list
         pairs = sorted(enumerate(weights), key=itemgetter(1), reverse=True)[:num_features]
-        for i, _ in pairs:
-            feature_scores[i].add(score)
-
+        all_scores.append((score, map(itemgetter(0), pairs)))
 
     dataset = dataset.select_features(num_features, best_weights)
     test_models(dataset, "subspace testing with nn")
 
-    # second version that uses the sum
-    weights = [numpy.mean(feature_scores.get(i, {0})) for i in range(dataset.inputs.shape[1])]
-    reduced = dataset.select_features(num_features, weights)
-    test_models(reduced, "subspace testing with nn tweaked")
+    diversified_scores = diversify(dataset.feature_names, best_weights)
+    reduced_dataset = dataset.select_features(num_features, diversified_scores)
+    test_models(reduced_dataset, "DIVERS subspace testing with nn (simplified)")
+
+    # second version that uses the top 5%
+    weights = count_important_features(all_scores, dataset)
+    reduced_dataset = dataset.select_features(num_features, weights)
+    test_models(reduced_dataset, "subspace testing with nn, simple merger of top feature sets")
 
 
 
@@ -713,8 +734,8 @@ def main():
     test_select_from_en(dataset, args.num_features)
 
     # reduced features * data size * cv * iter
-    test_subspace_simple(dataset, args.num_features, tuning_splits, num_iter=500)
-    test_subspace_mlp(dataset, args.num_features, tuning_splits, num_iter=500)
+    test_subspace_simple(dataset, args.num_features, tuning_splits, num_iter=150)
+    test_subspace_mlp(dataset, args.num_features, tuning_splits, num_iter=150)
 
     # loi = 1 * total features * data size * cv
     # loo = total features * total - 1 * data size * cv
