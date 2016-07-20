@@ -277,103 +277,75 @@ def test_stacking(dataset):
     # build the component models
     models = [with_val(with_scaler(sklearn.linear_model.ElasticNet(0.001), "en")),
               with_val(with_scaler(sklearn.linear_model.RidgeCV(), "ridge")),
-              with_non_negative(make_nn()[0])]
+              make_nn()[0]]
     for model in models:
         cross_validate(dataset, model)
 
-    print("Ridge stacking({})".format(",".join(helpers.sk.get_model_name(model) for model in models)))
+    print("Ridge stacking")
     ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(sklearn.linear_model.Ridge(alpha=0.1, fit_intercept=False)))
     cross_validate(dataset, ensemble)
 
-    print("Ridge/tuned stacking({})".format(",".join(helpers.sk.get_model_name(model) for model in models)))
+    print("Ridge/tuned stacking")
     hyperparams = {
         "fit_intercept": [True, False],
-        "alpha": [1., 0.1, 0.01, 0.001, 0.0001],
+        "alpha": helpers.sk.RandomizedSearchCV.exponential(1, 1e-5),
         "normalize": [True, False]
     }
     wrapped_model = helpers.sk.RandomizedSearchCV(sklearn.linear_model.Ridge(), hyperparams, n_iter=10, scoring=rms_error, cv=3, refit=True)
     ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(wrapped_model))
     cross_validate(dataset, ensemble)
 
-    #
-    # # print("RidgeCV stacking({})".format(",".join(helpers.sk.get_model_name(model) for model in models)))
-    # # ensemble = helpers.sk.StackedEnsembleRegressor(models, sklearn.linear_model.RidgeCV(alphas=(0.01, 0.05, 0.1, 0.5, 1, 5, 10), cv=3, fit_intercept=False))
-    # # cross_validate(dataset, ensemble)
-    #
-    # print("RidgeCV stacking({})".format(",".join(helpers.sk.get_model_name(model) for model in models)))
-    # ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(sklearn.linear_model.RidgeCV(alphas=(0.01, 0.05, 0.1, 0.5, 1, 5, 10), cv=3, fit_intercept=False, normalize=True)))
-    # cross_validate(dataset, ensemble)
-    #
-    print("ElasticNet stacking({})".format(",".join(helpers.sk.get_model_name(model) for model in models)))
+    print("ElasticNet stacking")
     ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(sklearn.linear_model.ElasticNet(0.001, fit_intercept=False)))
     cross_validate(dataset, ensemble)
 
-    print("ElasticNet/tuned stacking({})".format(",".join(helpers.sk.get_model_name(model) for model in models)))
+    print("ElasticNet/tuned stacking")
     hyperparams = {
         "fit_intercept": [True, False],
-        "alpha": [1., 0.1, 0.01, 0.001, 0.0001],
+        "alpha": helpers.sk.RandomizedSearchCV.exponential(1, 1e-5),
         "normalize": [True, False],
-        "l1_ratio": [.25, .5, .75]
+        "l1_ratio": helpers.sk.RandomizedSearchCV.uniform(.25, .75)
     }
-    wrapped_model = helpers.sk.RandomizedSearchCV(sklearn.linear_model.ElasticNet(), hyperparams, n_iter=10, scoring=rms_error, cv=3, refit=True)
+    wrapped_model = helpers.sk.RandomizedSearchCV(sklearn.linear_model.ElasticNet(), hyperparams, n_iter=30, scoring=rms_error, cv=3, refit=True)
     ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(wrapped_model))
-    cross_validate(dataset, ensemble)
-
-
-    print("MLP stacking({})".format(",".join(helpers.sk.get_model_name(model) for model in models)))
-    arbiter = helpers.neural.NnRegressor(num_epochs=5000,
-                                         batch_size=64,
-                                         learning_rate=0.01,
-                                         dropout=None,
-                                         input_noise=0.005,
-                                         activation="relu",
-                                         hidden_units=50,
-                                         early_stopping=True,
-                                         l2=1e-4,
-                                         val=.2,
-                                         maxnorm=True,
-                                         # history_file="mlp_history.csv",
-                                         # lr_decay=0.99,
-                                         non_negative=True,
-                                         assert_finite=False)
-    ensemble = helpers.sk.StackedEnsembleRegressor(models, arbiter)
-    cross_validate(dataset, ensemble)
-
-    param_prefix = ""
-    nn_hyperparams = {
-        "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 1e-4),
-        "lr_decay": helpers.sk.RandomizedSearchCV.exponential(1 - 1e-2, 1 - 1e-5),
-        # "input_dropout": helpers.sk.RandomizedSearchCV.uniform(0., 0.01),
-        "input_noise": helpers.sk.RandomizedSearchCV.uniform(0, 0.01),
-        "hidden_units": helpers.sk.RandomizedSearchCV.uniform(20, 100),
-        "dropout": helpers.sk.RandomizedSearchCV.uniform(0, 0.5),
-        "activation": ["relu", "elu"]
-    }
-    nn_hyperparams = {param_prefix + k: v for k, v in nn_hyperparams.items()}
-    wrapped_model = helpers.sk.RandomizedSearchCV(arbiter, nn_hyperparams, n_iter=20, scoring=rms_error, cv=3, refit=True)
-    ensemble = helpers.sk.StackedEnsembleRegressor(models, wrapped_model)
     cross_validate(dataset, ensemble)
 
     # now do a test that's stacking MLP, forwards, backwards RNN
     models = [with_non_negative(make_rnn(time_steps=4)[0]),
               with_non_negative(make_rnn(time_steps=4, reverse=True)[0]),
-              with_non_negative(make_nn()[0])]
+              make_nn()[0]]
     for model in models:
         cross_validate(dataset, model)
 
-    print("Ridge stacking({})".format(",".join(helpers.sk.get_model_name(model) for model in models)))
+    print("Ridge stacking")
     ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(sklearn.linear_model.Ridge(alpha=0.1, fit_intercept=False)))
     cross_validate(dataset, ensemble)
 
-    print("Ridge/tuned stacking({})".format(",".join(helpers.sk.get_model_name(model) for model in models)))
+    print("Ridge/tuned stacking")
     hyperparams = {
         "fit_intercept": [True, False],
-        "alpha": [1., 0.1, 0.01, 0.001, 0.0001],
+        "alpha": helpers.sk.RandomizedSearchCV.exponential(1, 1e-5),
         "normalize": [True, False]
     }
-    wrapped_model = helpers.sk.RandomizedSearchCV(sklearn.linear_model.Ridge(), hyperparams, n_iter=15, scoring=rms_error, cv=3, refit=True)
+    wrapped_model = helpers.sk.RandomizedSearchCV(sklearn.linear_model.Ridge(), hyperparams, n_iter=10, scoring=rms_error, cv=3, refit=True)
     ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(wrapped_model))
     cross_validate(dataset, ensemble)
+
+    print("ElasticNet stacking")
+    ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(sklearn.linear_model.ElasticNet(0.001, fit_intercept=False)))
+    cross_validate(dataset, ensemble)
+
+    print("ElasticNet/tuned stacking")
+    hyperparams = {
+        "fit_intercept": [True, False],
+        "alpha": helpers.sk.RandomizedSearchCV.exponential(1, 1e-5),
+        "normalize": [True, False],
+        "l1_ratio": helpers.sk.RandomizedSearchCV.uniform(.25, .75)
+    }
+    wrapped_model = helpers.sk.RandomizedSearchCV(sklearn.linear_model.ElasticNet(), hyperparams, n_iter=30, scoring=rms_error, cv=3, refit=True)
+    ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(wrapped_model))
+    cross_validate(dataset, ensemble)
+
 
 
 
