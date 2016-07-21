@@ -50,7 +50,8 @@ def main():
     dataset = load_split_data(args)
     dataset.split_map = None
 
-    test_stacking(dataset)
+    tune_gradient_boosting(dataset)
+    tune_random_forest(dataset)
 
 def test_features(dataset):
     from helpers.features import rfe_slow
@@ -91,6 +92,50 @@ def test_skflow(dataset):
 
     print("MLP")
     cross_validate(dataset, make_nn()[0])
+
+def tune_random_forest(dataset):
+    model = sklearn.ensemble.RandomForestRegressor(n_estimators=100)
+    cross_validate(dataset, model)
+
+    hyperparams = {
+        "max_features": range(int(0.5 * dataset.inputs.shape[1]), dataset.inputs.shape[1] + 1),
+        "max_depth": range(10, 150),
+        "min_samples_split": range(2, 40)
+    }
+
+    wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=50, n_jobs=-1, scoring=rms_error, refit=True)
+
+    wrapped_model.fit(dataset.inputs.copy(), dataset.outputs.copy())
+    wrapped_model.print_tuning_scores()
+
+    cross_validate(dataset, wrapped_model)
+
+
+
+@helpers.general.Timed
+def tune_gradient_boosting(dataset):
+    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=100, subsample=0.9, learning_rate=0.3, random_state=4)
+    model = helpers.sk.MultivariateRegressionWrapper(base_model)
+    cross_validate(dataset, model)
+
+    hyperparams = {
+        "learning_rate": helpers.sk.RandomizedSearchCV.uniform(0.1, 0.5),
+        "n_estimators": range(20, 50),
+        "max_depth": range(3, 6),
+        "min_samples_split": range(2, 40),
+        "subsample": [0.9],
+        "max_features": range(int(0.5 * dataset.inputs.shape[1]), dataset.inputs.shape[1] + 1),
+    }
+    wrapped_model = helpers.sk.MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, hyperparams, n_iter=10, refit=True, n_jobs=-1, scoring=rms_error))
+
+    wrapped_model.fit(dataset.inputs.copy(), dataset.outputs.copy())
+    wrapped_model.print_best_params()
+
+    cross_validate(dataset, wrapped_model)
+
+
+    # if args.analyse_feature_importance:
+    #     wrapped_model.print_feature_importances(feature_names)
 
 
 def test_rnn_relu(dataset):
