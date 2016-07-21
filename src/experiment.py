@@ -94,7 +94,7 @@ def test_skflow(dataset):
     cross_validate(dataset, make_nn()[0])
 
 def tune_random_forest(dataset):
-    model = sklearn.ensemble.RandomForestRegressor(n_estimators=100)
+    model = sklearn.ensemble.RandomForestRegressor(n_estimators=500)
     cross_validate(dataset, model)
 
     hyperparams = {
@@ -126,6 +126,8 @@ def tune_gradient_boosting(dataset):
         "subsample": [0.9],
         "max_features": range(int(0.5 * dataset.inputs.shape[1]), dataset.inputs.shape[1] + 1),
     }
+
+    # TODO: Up the number of hyperparameter samples greatly
     wrapped_model = helpers.sk.MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, hyperparams, n_iter=10, refit=True, n_jobs=-1, scoring=rms_error))
 
     wrapped_model.fit(dataset.inputs.copy(), dataset.outputs.copy())
