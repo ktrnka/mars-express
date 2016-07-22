@@ -230,9 +230,9 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     # SAAF rolling stddev, took top 2 from ElasticNet
     for num_days in [1, 8]:
         saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
+    saaf_data = saaf_data.reindex(data.index, method="nearest").bfill()
 
     saaf_data.drop(["sx", "sy", "sz", "sa"], axis=1, inplace=True)
-    saaf_data = saaf_data.reindex(data.index, method="nearest").bfill()
 
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
@@ -563,7 +563,7 @@ def test_subspace_selection(dataset, num_features, splits, prefilter=True):
     test_models(dataset, "subspace elimination")
 
 
-def test_subspace_simple(dataset, num_features, splits, num_iter=100):
+def test_subspace_simple(dataset, num_features, splits, num_iter=500):
     best_weights = None
     best_score = None
 
@@ -738,7 +738,7 @@ def main():
 
     # loi = 1 * total features * data size * cv
     # loo = total features * total - 1 * data size * cv
-    test_loo_loi(dataset, args.num_features, tuning_splits)
+    # test_loo_loi(dataset, args.num_features, tuning_splits)
 
     # loi + en-cv
     test_simple_ensemble(dataset, args.num_features, tuning_splits)
