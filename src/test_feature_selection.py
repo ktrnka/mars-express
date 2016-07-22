@@ -42,10 +42,11 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
     for col in longterm_data.columns:
         add_lag_feature(longterm_data, col, 24, "1d")
-        add_lag_feature(longterm_data, col, 4 * 24, "4d")
-        add_lag_feature(longterm_data, col, -4 * 24, "next4d")
-        add_lag_feature(longterm_data, col, 16 * 24, "16d")
-        add_lag_feature(longterm_data, col, -16 * 24, "next16d")
+        add_lag_feature(longterm_data, col, 4 * 24, "4d", min_periods=24)
+        add_lag_feature(longterm_data, col, -4 * 24, "next4d", min_periods=24)
+        add_lag_feature(longterm_data, col, 16 * 24, "16d", min_periods=24)
+        add_lag_feature(longterm_data, col, -16 * 24, "next16d", min_periods=24)
+        add_lag_feature(longterm_data, col, -64 * 24, "next64d", min_periods=24)
 
     ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
@@ -67,6 +68,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
         add_lag_feature(event_sampled_df, dest_name, 4 * 12, "4h")
         add_lag_feature(event_sampled_df, dest_name, 16 * 12, "16h")
+        add_lag_feature(event_sampled_df, dest_name, 36 * 12, "36h")
         add_lag_feature(event_sampled_df, dest_name, 4 * 24 * 12, "4d")
         add_lag_feature(event_sampled_df, dest_name, -4 * 24 * 12, "next4d")
         add_lag_feature(event_sampled_df, dest_name, -4 * 12, "next4h")
@@ -83,26 +85,19 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 8, "8h")
         add_lag_feature(event_sampled_df, dest_name, -12 * 8, "next8h")
+        add_lag_feature(event_sampled_df, dest_name, -12 * 16, "next16h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
+
+        # TODO: merge MRB 1600 into this section
 
     for aos_type in "MRB_AOS_10 MRB_AOS_00 MSL_AOS_10".split():
         dest_name = "EVTF_TIME_SINCE_{}".format(aos_type)
         event_sampled_df[dest_name] = time_since_last_event(event_data[event_data.description == aos_type], event_sampled_df.index)
 
-        # event count
-        # TODO: This is calling the incorrect hourly event count
-        dest_name = "EVTF_COUNT_{}".format(aos_type)
-        event_sampled_df[dest_name] = hourly_event_count(event_data[event_data.description == aos_type], event_sampled_df.index)
-        add_lag_feature(event_sampled_df, dest_name, 4 * 12, "4h")
-        add_lag_feature(event_sampled_df, dest_name, -4 * 12, "next4h")
-
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
     event_data["EVTF_event_counts"] = 1
 
-    print("Event data cols", event_data.columns)
-
-    # event_data = event_data.resample("5Min").count().rolling(12).sum().bfill().reindex(data.index, method="nearest")
     event_data = event_data.resample("5Min").count()
     event_data = roll(event_data, -12, "sum").reindex(data.index, method="nearest")
 
@@ -116,7 +111,6 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
 
-    # TODO: Should re-evaluate whether latency correction is appropriate.
     adjust_for_latency(dmop_data, one_way_latency)
 
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
@@ -125,9 +119,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:15]:
         dest_name = "DMOP_COUNT_{}".format(subsys)
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
-        event_sampled_df[dest_name + "_fixed"] = hourly_event_count_fixed(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
-        # TODO: These are using the unfixed versions but should be _fixed
         add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 12, "12h")
         add_lag_feature(event_sampled_df, dest_name, -12 * 12, "next12h")
@@ -136,16 +128,14 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         dest_name = "DMOP_TIME_SINCE_{}".format(subsys)
         event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
-    # subsystems with the command included just for a few
+    # subsystems with the command
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
     indexed_selected = collections.defaultdict(list)
     for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:50]:
         system, command = subsys.split("_")
         dest_name = "DMOP_COUNT_{}".format(subsys)
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
-        event_sampled_df[dest_name + "_fixed"] = hourly_event_count_fixed(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
-        # TODO: These are using the unfixed versions but should be _fixed
         add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
         add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 16, "16h")
@@ -155,20 +145,11 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         dest_name = "DMOP_TIME_SINCE_{}".format(subsys)
         event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
-        # get other commands for the same subsystem
-        # for other_command in indexed_selected[system]:
-        #     other_subsys = "_".join([system, other_command])
-        #     other_time = "DMOP_TIME_SINCE_{}".format(other_subsys)
-        #
-        #     delta_name = "DMOP_TIME_SINCE_{}-{}".format(subsys, other_subsys)
-        #     event_sampled_df[delta_name] = event_sampled_df[dest_name] - event_sampled_df[other_time]
-
         indexed_selected[system].append(command)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
 
-    # dmop_data = dmop_data.resample("5Min").count().rolling(12).sum().bfill().reindex(data.index, method="nearest")
     dmop_data = dmop_data.resample("5Min").count()
     dmop_data = roll(dmop_data, -12, "sum").reindex(data.index, method="nearest")
 
@@ -183,10 +164,10 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     saaf_data["SAAF_interval"] = pandas.Series(data=(saaf_data.index - numpy.roll(saaf_data.index, 1))[1:].total_seconds(), index=saaf_data.index[1:])
     saaf_data["SAAF_interval"].bfill(inplace=True)
 
-    # try a totally different style
     saaf_data = saaf_data.resample("2Min").mean().interpolate()
     saaf_periods = 30
 
+    # chop each one into quartiles and make indicators for the quartiles
     saaf_quartiles = []
     for col in ["sx", "sy", "sz", "sa"]:
         quartile_indicator_df = pandas.get_dummies(pandas.qcut(saaf_data[col], 10), col + "_")
@@ -194,18 +175,6 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         saaf_quartiles.append(quartile_hist_df)
 
     add_lag_feature(saaf_data, "SAAF_interval", saaf_periods * 4, "4h", drop=True)
-    # add_lag_feature(saaf_data, "SAAF_interval", saaf_periods * 24 * 4, "4d")
-    # add_lag_feature(saaf_data, "SAAF_interval", -saaf_periods * 24 * 4, "next4d")
-
-    # Note: These DCT features don't actually get much use, maybe because they're not super stable.
-    # import scipy.fftpack
-    # for col in ["sx", "sy", "sz", "sa"]:
-    #     standardized = numpy.log(saaf_data[col] + 1)
-    #     resampled = standardized.resample("4H")
-    #
-    #     for i in range(3):
-    #         saaf_data["{}_dct{}".format(col, i)] = resampled.apply(lambda d: scipy.fftpack.dct(d * numpy.hanning(d.shape[0]), n=16, norm="ortho")[i]).reindex(saaf_data.index, method="bfill").fillna(method="ffill")
-
 
     saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1)
 
@@ -218,14 +187,10 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
     saaf_quartile_df = saaf_quartile_df.reindex(data.index, method="nearest")
 
-    # convert to simple rolling mean
-
-    # saaf_data["SAAF_interval"] = roll(saaf_data["SAAF_interval"], saaf_periods)
-
     for col in ["sx", "sy", "sz", "sa"]:
         # next hour, prev hour, prev 4, prev 16, next 4, next 16, and 30 day averages
-        for interval in [-1, 1, -4, 4, -16, 16, -24 * 30, 24 * 30]:
-            add_lag_feature(saaf_data, col, saaf_periods * interval, make_label(interval))
+        for interval in [-1, 1, -4, 4, -16, 16, -24 * 30, 24 * 30, -24 * 60, 24 * 60]:
+            add_lag_feature(saaf_data, col, saaf_periods * interval, make_label(interval), min_periods=saaf_periods * min(abs(interval) * 24))
 
     # SAAF rolling stddev, took top 2 from ElasticNet
     for num_days in [1, 8]:
@@ -248,9 +213,6 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
 
     if derived_features:
-        for col in [c for c in data.columns if "EVTF_IN_MRB" in c]:
-            add_transformation_feature(data, col, "gradient")
-        add_transformation_feature(data, "FTL_EARTH_rolling_1h", "gradient")
         add_transformation_feature(data, "DMOP_event_counts", "log", drop=True)
         add_transformation_feature(data, "LT_occultationduration_min", "log", drop=True)
 
@@ -261,14 +223,12 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
             data[col + "_tanh_10d"] = numpy.tanh(data[col] / (60 * 60 * 24. * 10))
             data.drop(col, axis=1, inplace=True)
 
-        # add_transformation_feature(data, "sa", "log", drop=True)
-        # add_transformation_feature(data, "sy", "log", drop=True)
+        # log of all the bare sa and sy feature cause they have outlier issues
+        for col in [c for c in data.columns if "sa_rolling" in c or "sy_rolling" in c]:
+            add_transformation_feature(data, col, "log", drop=True)
 
         # # various crazy rolling features
-        add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_1h", 50, "50")
         add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h", 1600, "1600")
-        add_lag_feature(data, "EVTF_event_counts_rolling_16h", 20, "20")
-        # add_lag_feature(data, "FTL_ACROSS_TRACK_rolling_1h", 200, "200")
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
 
     logger.info("DataFrame shape %s", data.shape)
@@ -344,6 +304,7 @@ def test_models(dataset, name, with_nn=True, with_rnn=True):
 
     if with_rnn:
         cross_validate(dataset, with_scaler(make_rnn(non_negative=True)[0], "rnn"))
+        cross_validate(dataset, with_scaler(with_non_negative(make_rnn()[0]), "rnn"))
 
 
 def make_select_f(num_features, ewma=False):
@@ -425,8 +386,14 @@ def score_features_loo(X, Y, splits, scorer, std_dev_weight=-.05, model_override
     return numpy.asarray(scores)
 
 
-def score_features_loi(X, Y, splits, scorer, std_dev_weight=-.05):
-    model = with_scaler(sklearn.linear_model.Ridge(), "ridge")
+def score_features_loi(X, Y, splits, scorer, std_dev_weight=-.05, model="linear"):
+    if model == "linear":
+        model = with_scaler(sklearn.linear_model.Ridge(), "ridge")
+    elif model == "rnn":
+        model = with_scaler(with_non_negative(make_rnn()[0]), "rnn")
+    else:
+        raise ValueError("Unsupported model for score_features_loi: {}".format(model))
+
     scores = [0 for _ in range(X.shape[1])]
     for i in range(X.shape[1]):
         cv_scores = sklearn.cross_validation.cross_val_score(model, X[:, [i]], Y, scoring=scorer, cv=splits)
@@ -507,15 +474,15 @@ def test_rfecv_en(dataset, num_features, tuning_splits, prefilter=True):
     test_models(reduced_dataset, "Ens of RFECV+EN+LOI+LOO(ElasticNet(sum)) V2")
 
 
-def test_simple_ensemble(dataset, num_features, splits):
+def test_simple_ensemble(dataset, num_features, splits, loi_model="linear"):
     en_cv_scores = cross_validated_select(dataset, splits, score_features_elasticnet)
 
     # ensemble of leave one out, leave one in, coef but no zero clip, RFECV
-    loi_scores = score_features_loi(dataset.inputs, dataset.outputs, splits, rms_error)
+    loi_scores = score_features_loi(dataset.inputs, dataset.outputs, splits, rms_error, model=loi_model)
 
     scores = .5 ** loi_scores * (en_cv_scores + .1)
     reduced_dataset = dataset.select_features(num_features, scores, verbose=1)
-    test_models(reduced_dataset, "Ensemble of ENCV+LOI")
+    test_models(reduced_dataset, "Ensemble of ENCV+LOI({})".format(loi_model))
 
 def test_cv_ensemble(dataset, num_features, splits):
     scores1 = cross_validated_select(dataset, splits, score_features_elasticnet)
@@ -525,7 +492,7 @@ def test_cv_ensemble(dataset, num_features, splits):
     test_models(dataset.select_features(num_features, scores, verbose=1), "Ensemble of ENCV on both CV splits")
 
     diversified_scores = diversify(dataset.feature_names, scores)
-    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "DIVERS Ensemble of ENCV on both CV splits")
+    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Ensemble of ENCV on both CV splits")
 
 
 def test_mega_ensemble(dataset, num_features, splits, noise=0.01, noise_iter=5):
@@ -542,7 +509,7 @@ def test_mega_ensemble(dataset, num_features, splits, noise=0.01, noise_iter=5):
     test_models(dataset.select_features(num_features, scores, verbose=1), "Noise*CV*model ensemble")
 
     diversified_scores = diversify(dataset.feature_names, scores)
-    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "DIVERS Noise*CV*model ensemble")
+    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Noise*CV*model ensemble")
 
 
 def test_subspace_selection(dataset, num_features, splits, prefilter=True):
@@ -586,7 +553,7 @@ def test_subspace_simple(dataset, num_features, splits, num_iter=500):
 
     diversified_scores = diversify(dataset.feature_names, best_weights)
     reduced_dataset = dataset.select_features(num_features, diversified_scores)
-    test_models(reduced_dataset, "DIVERS subspace elimination (simplified)")
+    test_models(reduced_dataset, "Diversified subspace elimination (simplified)")
 
     weights = count_important_features(all_scores, dataset)
     reduced_dataset = dataset.select_features(num_features, weights)
@@ -628,7 +595,7 @@ def test_subspace_mlp(dataset, num_features, splits, num_iter=100):
 
     diversified_scores = diversify(dataset.feature_names, best_weights)
     reduced_dataset = dataset.select_features(num_features, diversified_scores)
-    test_models(reduced_dataset, "DIVERS subspace testing with nn (simplified)")
+    test_models(reduced_dataset, "Diversified subspace testing with nn (simplified)")
 
     # second version that uses the top 5%
     weights = count_important_features(all_scores, dataset)
@@ -693,9 +660,6 @@ def test_noise_insensitivity(dataset, num_features, splits, noise=0.01, num_nois
     scores = score_matrix.mean(axis=0)
     test_models(dataset.select_features(num_features, scores, verbose=1), "NoisyCV_{}@{}{}(ElasticNet(sum))".format(num_noise, noise, "nonpara" if nonparametric else ""))
 
-    diversified_scores = diversify(dataset.feature_names, scores)
-    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "DIVERS NoisyCV_{}@{}{}(ElasticNet(sum))".format(num_noise, noise, "nonpara" if nonparametric else ""))
-
 
 def main():
     args = parse_args()
@@ -723,18 +687,18 @@ def main():
 
     # data size * total features * cv * num noise
     test_noise_insensitivity(dataset, args.num_features, tuning_splits)
-    # test_noise_insenitivity(dataset, args.num_features, tuning_splits, num_noise=20)
+    test_noise_insensitivity(dataset, args.num_features, tuning_splits, noise=0.03)
     test_mega_ensemble(dataset, args.num_features, tuning_splits)
 
     # data size * total features * cv * 2
-    test_cv_ensemble(dataset, args.num_features, tuning_splits)
+    # test_cv_ensemble(dataset, args.num_features, tuning_splits)
 
     # data size * total features * 1
-    test_select_from_en(dataset, args.num_features)
+    # test_select_from_en(dataset, args.num_features)
 
     # reduced features * data size * cv * iter
-    test_subspace_simple(dataset, args.num_features, tuning_splits, num_iter=150)
-    test_subspace_mlp(dataset, args.num_features, tuning_splits, num_iter=150)
+    # test_subspace_simple(dataset, args.num_features, tuning_splits, num_iter=150)
+    # test_subspace_mlp(dataset, args.num_features, tuning_splits, num_iter=150)
 
     # loi = 1 * total features * data size * cv
     # loo = total features * total - 1 * data size * cv
@@ -742,6 +706,7 @@ def main():
 
     # loi + en-cv
     test_simple_ensemble(dataset, args.num_features, tuning_splits)
+    test_simple_ensemble(dataset, args.num_features, tuning_splits, loi_model="rnn")
 
     # super slow methods
     # test_rfecv_en(dataset, args.num_features, tuning_splits)

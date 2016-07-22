@@ -221,20 +221,8 @@ def hourly_event_count(event_data, index):
 
     event_counts = pandas.Series(index=event_data.index, data=event_data.index, name="date")
 
-    # TODO - needs to be next 1h to match the power resample
-    event_counts = event_counts.resample("5Min").count().rolling(12).sum().bfill()
-    return event_counts.reindex(index, method="nearest")
-
-def hourly_event_count_fixed(event_data, index):
-    """Make a Series with the specified index that has the hourly count of events in event_data"""
-    if len(event_data) == 0:
-        return pandas.Series(index=index, data=0)
-
-    event_counts = pandas.Series(index=event_data.index, data=event_data.index, name="date")
-
     event_counts = event_counts.resample("5Min").count()[::-1].rolling(12).sum().bfill()[::-1]
     return event_counts.reindex(index, method="nearest")
-
 
 def parse_cut_feature(range_feature_name):
     """Parse a feature like sz__(95.455, 101.35] into sz, 95.455, 101.35"""
@@ -600,7 +588,7 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
     # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
     for subsys in "AAA PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB VVV SXX".split():
         dest_name = "DMOP_{}_event_count".format(subsys)
-        event_sampled_df[dest_name] = hourly_event_count_fixed(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
 
     subsystem_windows = {
         "OOO": [-4, 12],
@@ -631,7 +619,7 @@ def load_data_fixed(data_dir, resample_interval=None, filter_null_power=False, d
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
     for subsys, hours in subsystem_windows.items():
         dest_name = "DMOP_{}_event_count".format(subsys)
-        event_sampled_df[dest_name] = hourly_event_count_fixed(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
         add_lag_feature(event_sampled_df, dest_name, hours * 12, make_label(hours), drop=True)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
