@@ -93,6 +93,7 @@ def test_skflow(dataset):
     print("MLP")
     cross_validate(dataset, make_nn()[0])
 
+@helpers.general.Timed
 def tune_random_forest(dataset):
     model = sklearn.ensemble.RandomForestRegressor(n_estimators=500)
     cross_validate(dataset, model)
@@ -114,13 +115,12 @@ def tune_random_forest(dataset):
 
 @helpers.general.Timed
 def tune_gradient_boosting(dataset):
-    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=100, subsample=0.9, learning_rate=0.3, random_state=4)
+    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=150, subsample=0.9, learning_rate=0.26, min_samples_split=20, max_depth=4, random_state=4)
     model = helpers.sk.MultivariateRegressionWrapper(base_model)
     cross_validate(dataset, model)
 
     hyperparams = {
         "learning_rate": helpers.sk.RandomizedSearchCV.uniform(0.1, 0.5),
-        "n_estimators": range(20, 50),
         "max_depth": range(3, 6),
         "min_samples_split": range(2, 40),
         "subsample": [0.9],
@@ -128,7 +128,7 @@ def tune_gradient_boosting(dataset):
     }
 
     # TODO: Up the number of hyperparameter samples greatly
-    wrapped_model = helpers.sk.MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, hyperparams, n_iter=10, refit=True, n_jobs=-1, scoring=rms_error))
+    wrapped_model = helpers.sk.MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, hyperparams, n_iter=30, refit=True, n_jobs=-1, scoring=rms_error))
 
     wrapped_model.fit(dataset.inputs.copy(), dataset.outputs.copy())
     wrapped_model.print_best_params()
