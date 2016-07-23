@@ -190,7 +190,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     for col in ["sx", "sy", "sz", "sa"]:
         # next hour, prev hour, prev 4, prev 16, next 4, next 16, and 30 day averages
         for interval in [-1, 1, -4, 4, -16, 16, -24 * 30, 24 * 30, -24 * 60, 24 * 60]:
-            add_lag_feature(saaf_data, col, saaf_periods * interval, make_label(interval), min_periods=saaf_periods * min(abs(interval) * 24))
+            add_lag_feature(saaf_data, col, saaf_periods * interval, make_label(interval), min_periods=saaf_periods * min(abs(interval), 24))
 
     # SAAF rolling stddev, took top 2 from ElasticNet
     for num_days in [1, 8]:
