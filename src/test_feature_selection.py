@@ -225,7 +225,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
         # log of all the bare sa and sy feature cause they have outlier issues
         for col in [c for c in data.columns if "sa_rolling" in c or "sy_rolling" in c]:
-            add_transformation_feature(data, col, "log", drop=True)
+            if col.endswith("1h"):
+                add_transformation_feature(data, col, "log", drop=True)
 
         # # various crazy rolling features
         add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h", 1600, "1600")
