@@ -496,13 +496,13 @@ def test_cv_ensemble(dataset, num_features, splits):
     test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Ensemble of ENCV on both CV splits")
 
 
-def test_mega_ensemble(dataset, num_features, splits, noise=0.01, noise_iter=5):
+def test_mega_ensemble(dataset, num_features, splits, noise=0.01, noise_iter=3):
     scorers = [score_features_elasticnet]
 
     scores = []
     for _ in range(noise_iter):
         noised_data = with_noise(dataset, noise)
-        for cv in [splits, dataset.splits]:
+        for cv in dataset.split_map.values():
             for scorer in scorers:
                 scores.append(cross_validated_select(noised_data, cv, scorer))
 
@@ -676,20 +676,21 @@ def main():
     #     test_models(dataset, "baseline/realigned", with_nn=True, with_rnn=True)
 
     dataset = load_split_data(args, data_loader=load_inflated_data)
+    # dataset.split_map = None
 
     print("Baselines (new unpruned features)")
     cross_validate(dataset, sklearn.dummy.DummyRegressor())
     test_models(dataset, "baseline", with_nn=False)
 
-    tuning_splits = sklearn.cross_validation.KFold(dataset.inputs.shape[0], 3, False)
+    tuning_splits = dataset.split_map["alex"]
 
     # data size * total features * cv (1 pass)
     test_select_from_en_cv(dataset, args.num_features, tuning_splits)
 
     # data size * total features * cv * num noise
-    test_noise_insensitivity(dataset, args.num_features, tuning_splits)
+    # test_noise_insensitivity(dataset, args.num_features, tuning_splits)
     test_noise_insensitivity(dataset, args.num_features, tuning_splits, noise=0.03)
-    test_mega_ensemble(dataset, args.num_features, tuning_splits)
+    test_mega_ensemble(dataset, args.num_features, tuning_splits, noise=0.03)
 
     # data size * total features * cv * 2
     # test_cv_ensemble(dataset, args.num_features, tuning_splits)
