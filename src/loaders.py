@@ -1,5 +1,6 @@
 import collections
 import os
+from operator import itemgetter
 
 import numpy
 import pandas
@@ -161,11 +162,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     saaf_periods = 30
 
     # chop each one into quartiles and make indicators for the quartiles
-    saaf_quartiles = []
-    for col in ["sx", "sy", "sz", "sa"]:
-        quartile_indicator_df = pandas.get_dummies(pandas.qcut(saaf_data[col], 10), col + "_")
-        quartile_hist_df = quartile_indicator_df.rolling(saaf_periods, min_periods=1).mean()
-        saaf_quartiles.append(quartile_hist_df)
+    saaf_quartiles = compute_saaf_quartiles(saaf_data, saaf_periods)
 
     add_lag_feature(saaf_data, "SAAF_interval", saaf_periods * 4, "4h", drop=True)
 
@@ -369,13 +366,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     saaf_data = saaf_data.resample("2Min").mean().interpolate()
     saaf_periods = 30
 
-    saaf_quartiles = []
-    # for col in ["sx", "sy", "sz", "sa"]:
-    #     quartile_indicator_df = pandas.get_dummies(pandas.qcut(saaf_data[col], 10), col + "_")
-    #     quartile_hist_df = quartile_indicator_df.rolling(saaf_periods, min_periods=1).mean()
-    #     saaf_quartiles.append(quartile_hist_df)
-
-    feature_weights = [(u'sz__(85.86, 90.0625]', 0.029773711557758643),
+    saaf_quartile_features = [(u'sz__(85.86, 90.0625]', 0.029773711557758643),
                        (u'sa__(1.53, 5.192]', 0.018961685024380826),
                        (u'sy__(89.77, 89.94]', 0.017065361875026698),
                        (u'sx__(2.355, 5.298]', 0.016407419574092953),
@@ -390,15 +381,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
                        (u'sa__(0.739, 1.53]', 0.0050941311789206674),
                        (u'sa__(0.198, 0.31]', 0.00064943741967410915)]
 
-    for feature, weight in feature_weights:
-        if feature.startswith("s") and "__" in feature:
-            base, lower, upper = parse_cut_feature(feature)
-
-            indicators = (saaf_data[base] > lower) & (saaf_data[base] <= upper)
-
-            rolling_count = indicators[::-1].rolling(saaf_periods, min_periods=1).mean()[::-1]
-            rolling_count.rename(feature, inplace=True)
-            saaf_quartiles.append(rolling_count)
+    saaf_quartiles = compute_saaf_quartiles(saaf_data, saaf_periods, map(itemgetter(0), saaf_quartile_features))
 
     saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1).reindex(data.index, method="nearest")
 
@@ -442,6 +425,34 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     logger.info("DataFrame shape %s", data.shape)
     return data
+
+
+def compute_saaf_quartiles(saaf_data, saaf_periods, feature_names=None, num_quartiles=10):
+    """Return a list of SAAF angle quartile features"""
+    saaf_quartiles = []
+
+    if not feature_names:
+        # if no features are specified pull a bunch
+        for col in ["sx", "sy", "sz", "sa"]:
+            # build a full dataframe
+            quartile_indicator_df = pandas.get_dummies(pandas.qcut(saaf_data[col], num_quartiles), col + "_")
+
+            # rolling mean
+            quartile_hist_df = roll(quartile_indicator_df, -saaf_periods, min_periods=1)
+            saaf_quartiles.append(quartile_hist_df)
+    else:
+        # if the features are specified, pull those specific ones
+        for feature in feature_names:
+            if feature.startswith("s") and "__" in feature:
+                base, lower, upper = parse_cut_feature(feature)
+
+                interval_indicator = (saaf_data[base] > lower) & (saaf_data[base] <= upper)
+
+                rolling_count = roll(interval_indicator, -saaf_periods, min_periods=1)
+                rolling_count.rename(feature, inplace=True)
+                saaf_quartiles.append(rolling_count)
+
+    return saaf_quartiles
 
 
 def make_label(hours):
@@ -549,6 +560,7 @@ def get_ftl_periods(ftl_slice):
 
 
 def load_series(files, add_file_number=False, resample_interval=None, roll_mean_window=None, date_cols=True):
+    """Load a raw set of yearly files"""
     data = [pandas.read_csv(f, parse_dates=date_cols, date_parser=parse_dates, index_col=0) for f in files]
 
     if resample_interval:
@@ -568,7 +580,6 @@ def load_series(files, add_file_number=False, resample_interval=None, roll_mean_
 
 
 def add_integrated_distance_feature(dataframe, feature, point, num_periods):
-    """Derive a feature with a simple function like log, sqrt, etc"""
     assert isinstance(dataframe, pandas.DataFrame)
     new_name = "{}_dist_from_{}_rolling{}".format(feature, point, num_periods)
 
@@ -605,7 +616,10 @@ def time_since_last_event(event_data, index):
 
 
 def get_signal_level(filtered_event_data, index):
-    """Merge AOS/LOS signals into a relatively simplistic rolling sum of all AOS and LOS"""
+    """
+    Merge AOS/LOS signals into a relatively simplistic rolling sum of all AOS and LOS.
+    After testing I found this didn't really matter or was very minor.
+    """
     # earth_evtf = event_data[event_data.description.str.contains("RTLT")]
     signals = filtered_event_data.description.str.contains("AOS").astype("int") - filtered_event_data.description.str.contains("LOS").astype(int)
     signals_sum = signals.cumsum()
