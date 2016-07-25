@@ -12,7 +12,8 @@ import sklearn
 
 import helpers.general
 import helpers.sk
-from train_test import load_split_data, make_nn
+from train_test import make_nn
+from loaders import load_split_data
 
 """
 Train a few models and recombine their cross-validated predictions then graph the top few at various resampling intervals.

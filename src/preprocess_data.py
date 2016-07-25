@@ -3,6 +3,8 @@ from __future__ import unicode_literals
 import logging
 import sys
 import argparse
+
+import loaders
 import train_test
 from helpers.general import Timed, with_date, with_num_features, _with_extra
 
@@ -28,8 +30,8 @@ def main():
 
 
 def generate_csv(training_dir, resample, output_filename):
-    train_data = train_test.load_data(training_dir, resample_interval=resample, filter_null_power=True)
-    X, _ = train_test.separate_output(train_data)
+    train_data = loaders.load_data(training_dir, resample_interval=resample, filter_null_power=True)
+    X, _ = loaders.separate_output(train_data)
     train_data.to_csv(with_num_features(with_date(output_filename), X))
 
 

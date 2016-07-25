@@ -1,13 +1,28 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
+import argparse
+import logging
 import re
 
+import collections
+from operator import itemgetter
+
+import numpy
+import pandas
 import scipy.stats
+import sys
 
-from helpers.features import roll
-from train_test import *
-
+from helpers.sk import rms_error
+from loaders import load_inflated_data, centered_ewma, load_split_data
+from train_test import make_nn, make_rnn, make_blr, make_rf, cross_validate, with_scaler, with_non_negative
+import sklearn.linear_model
+import sklearn.cross_validation
+import sklearn.feature_selection
+import sklearn.ensemble
+import helpers.sk
+import helpers.general
+import sklearn.dummy
 
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -17,223 +32,6 @@ def parse_args():
     parser.add_argument("num_features", default=40, type=int, help="Number of features to select")
     parser.add_argument("training_dir", help="Dir with the training CSV files or joined CSV file with the complete feature matrix")
     return parser.parse_args()
-
-@helpers.general.Timed
-def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
-    logger = helpers.general.get_function_logger()
-
-    if not os.path.isdir(data_dir):
-        return pandas.read_csv(data_dir, index_col=0, parse_dates=True)
-
-    # load the base power data
-    data = load_series(find_files(data_dir, "power"), add_file_number=True, resample_interval=resample_interval)
-
-    event_sampling_index = pandas.DatetimeIndex(freq="5Min", start=data.index.min(), end=data.index.max())
-    event_sampled_df = pandas.DataFrame(index=event_sampling_index)
-
-    ### LTDATA ###
-    longterm_data = load_series(find_files(data_dir, "ltdata"))
-    longterm_data.rename(columns=lambda c: "LT_{}".format(c), inplace=True)
-
-    # as far as I can tell this doesn't make a difference but it makes me feel better
-    longterm_data = longterm_data.resample("1H").mean().interpolate().bfill()
-
-    one_way_latency = get_communication_latency(longterm_data.LT_earthmars_km)
-
-    for col in longterm_data.columns:
-        add_lag_feature(longterm_data, col, 24, "1d")
-        add_lag_feature(longterm_data, col, 4 * 24, "4d", min_periods=24)
-        add_lag_feature(longterm_data, col, -4 * 24, "next4d", min_periods=24)
-        add_lag_feature(longterm_data, col, 16 * 24, "16d", min_periods=24)
-        add_lag_feature(longterm_data, col, -16 * 24, "next16d", min_periods=24)
-        add_lag_feature(longterm_data, col, -64 * 24, "next64d", min_periods=24)
-
-    ### FTL ###
-    ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
-
-    event_sampled_df["FTL_flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
-    add_lag_feature(event_sampled_df, "FTL_flagcomms", 12, "1h")
-    add_lag_feature(event_sampled_df, "FTL_flagcomms", -12, "next1h")
-    add_lag_feature(event_sampled_df, "FTL_flagcomms", 2 * 12, "2h")
-    add_lag_feature(event_sampled_df, "FTL_flagcomms", 8 * 12, "8h")
-    add_lag_feature(event_sampled_df, "FTL_flagcomms", -8 * 12, "next8h")
-    event_sampled_df.drop("FTL_flagcomms", axis=1, inplace=True)
-
-    # select columns or take preselected ones
-    for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK"]:
-        dest_name = "FTL_" + ftl_type
-        event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
-
-        add_lag_feature(event_sampled_df, dest_name, 12, "1h")
-        add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
-        add_lag_feature(event_sampled_df, dest_name, 4 * 12, "4h")
-        add_lag_feature(event_sampled_df, dest_name, 16 * 12, "16h")
-        add_lag_feature(event_sampled_df, dest_name, 36 * 12, "36h")
-        add_lag_feature(event_sampled_df, dest_name, 4 * 24 * 12, "4d")
-        add_lag_feature(event_sampled_df, dest_name, -4 * 24 * 12, "next4d")
-        add_lag_feature(event_sampled_df, dest_name, -4 * 12, "next4h")
-        event_sampled_df.drop(dest_name, axis=1, inplace=True)
-
-    ### EVTF ###
-    event_data = load_series(find_files(data_dir, "evtf"))
-
-    for event_name in ["MAR_UMBRA", "MRB_/_RANGE_06000KM", "MSL_/_RANGE_06000KM"]:
-        dest_name = "EVTF_IN_" + event_name
-        event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
-
-        add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
-        add_lag_feature(event_sampled_df, dest_name, 12, "1h")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 8, "8h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 8, "next8h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 16, "next16h")
-        event_sampled_df.drop(dest_name, axis=1, inplace=True)
-
-        # TODO: merge MRB 1600 into this section
-
-    for aos_type in "MRB_AOS_10 MRB_AOS_00 MSL_AOS_10".split():
-        dest_name = "EVTF_TIME_SINCE_{}".format(aos_type)
-        event_sampled_df[dest_name] = time_since_last_event(event_data[event_data.description == aos_type], event_sampled_df.index)
-
-    altitude_series = get_evtf_altitude(event_data, index=data.index)
-    event_data.drop(["description"], axis=1, inplace=True)
-    event_data["EVTF_event_counts"] = 1
-
-    event_data = event_data.resample("5Min").count()
-    event_data = roll(event_data, -12, "sum").reindex(data.index, method="nearest")
-
-    event_data["EVTF_altitude"] = altitude_series
-    add_lag_feature(event_data, "EVTF_altitude", 8, "8h")
-    add_lag_feature(event_data, "EVTF_altitude", -8, "next8h")
-    add_lag_feature(event_data, "EVTF_event_counts", 2, "2h")
-    add_lag_feature(event_data, "EVTF_event_counts", 16, "16h")
-    add_lag_feature(event_data, "EVTF_event_counts", -16, "next16h")
-
-    ### DMOP ###
-    dmop_data = load_series(find_files(data_dir, "dmop"))
-
-    adjust_for_latency(dmop_data, one_way_latency)
-
-    dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
-
-    # these subsystems were found partly by trial and error
-    for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:15]:
-        dest_name = "DMOP_COUNT_{}".format(subsys)
-        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
-
-        add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 12, "12h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 12, "next12h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
-
-        dest_name = "DMOP_TIME_SINCE_{}".format(subsys)
-        event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
-
-    # subsystems with the command
-    dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
-    indexed_selected = collections.defaultdict(list)
-    for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:50]:
-        system, command = subsys.split("_")
-        dest_name = "DMOP_COUNT_{}".format(subsys)
-        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
-
-        add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 16, "16h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 16, "next16h")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 4, "4d")
-
-        dest_name = "DMOP_TIME_SINCE_{}".format(subsys)
-        event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
-
-        indexed_selected[system].append(command)
-
-    dmop_data.drop(["subsystem"], axis=1, inplace=True)
-    dmop_data["DMOP_event_counts"] = 1
-
-    dmop_data = dmop_data.resample("5Min").count()
-    dmop_data = roll(dmop_data, -12, "sum").reindex(data.index, method="nearest")
-
-    add_lag_feature(dmop_data, "DMOP_event_counts", 4, "4h")
-    add_lag_feature(dmop_data, "DMOP_event_counts", -4, "next4h")
-    add_lag_feature(dmop_data, "DMOP_event_counts", 16, "16h")
-    add_lag_feature(dmop_data, "DMOP_event_counts", -16, "next16h")
-
-    ### SAAF ###
-    saaf_data = load_series(find_files(data_dir, "saaf"))
-
-    saaf_data["SAAF_interval"] = pandas.Series(data=(saaf_data.index - numpy.roll(saaf_data.index, 1))[1:].total_seconds(), index=saaf_data.index[1:])
-    saaf_data["SAAF_interval"].bfill(inplace=True)
-
-    saaf_data = saaf_data.resample("2Min").mean().interpolate()
-    saaf_periods = 30
-
-    # chop each one into quartiles and make indicators for the quartiles
-    saaf_quartiles = []
-    for col in ["sx", "sy", "sz", "sa"]:
-        quartile_indicator_df = pandas.get_dummies(pandas.qcut(saaf_data[col], 10), col + "_")
-        quartile_hist_df = quartile_indicator_df.rolling(saaf_periods, min_periods=1).mean()
-        saaf_quartiles.append(quartile_hist_df)
-
-    add_lag_feature(saaf_data, "SAAF_interval", saaf_periods * 4, "4h", drop=True)
-
-    saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1)
-
-    for col in saaf_quartile_df.columns:
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * -2, "next2h")
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * 4, "4h")
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * 12, "12h")
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * 48, "48h")
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * -48, "next48h")
-
-    saaf_quartile_df = saaf_quartile_df.reindex(data.index, method="nearest")
-
-    for col in ["sx", "sy", "sz", "sa"]:
-        # next hour, prev hour, prev 4, prev 16, next 4, next 16, and 30 day averages
-        for interval in [-1, 1, -4, 4, -16, 16, -24 * 30, 24 * 30, -24 * 60, 24 * 60]:
-            add_lag_feature(saaf_data, col, saaf_periods * interval, make_label(interval), min_periods=saaf_periods * min(abs(interval), 24))
-
-    # SAAF rolling stddev, took top 2 from ElasticNet
-    for num_days in [1, 8]:
-        saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
-    saaf_data = saaf_data.reindex(data.index, method="nearest").bfill()
-
-    saaf_data.drop(["sx", "sy", "sz", "sa"], axis=1, inplace=True)
-
-    longterm_data = longterm_data.reindex(data.index, method="nearest")
-
-    data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest"), saaf_quartile_df], axis=1)
-    assert isinstance(data, pandas.DataFrame)
-
-    if filter_null_power:
-        previous_size = data.shape[0]
-        data = data[data.NPWD2532.notnull()]
-        if data.shape[0] < previous_size:
-            logger.info("Reduced data from {:,} rows to {:,}".format(previous_size, data.shape[0]))
-
-    data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
-
-    if derived_features:
-        add_transformation_feature(data, "DMOP_event_counts", "log", drop=True)
-        add_transformation_feature(data, "LT_occultationduration_min", "log", drop=True)
-
-        # these features have clipping issues
-        for col in [c for c in data.columns if "TIME_SINCE" in c]:
-            data[col + "_tanh_4h"] = numpy.tanh(data[col] / (60 * 60 * 4.))
-            data[col + "_tanh_1d"] = numpy.tanh(data[col] / (60 * 60 * 24.))
-            data[col + "_tanh_10d"] = numpy.tanh(data[col] / (60 * 60 * 24. * 10))
-            data.drop(col, axis=1, inplace=True)
-
-        # log of all the bare sa and sy feature cause they have outlier issues
-        for col in [c for c in data.columns if "sa_rolling" in c or "sy_rolling" in c]:
-            if col.endswith("1h"):
-                add_transformation_feature(data, col, "log", drop=True)
-
-        # # various crazy rolling features
-        add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h", 1600, "1600")
-        add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
-
-    logger.info("DataFrame shape %s", data.shape)
-    return data
 
 
 def split_feature_name(name):

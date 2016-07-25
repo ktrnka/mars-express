@@ -7,6 +7,7 @@ import argparse
 
 import io
 
+import loaders
 import train_test
 import helpers.sk
 
@@ -23,7 +24,7 @@ def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO)
 
-    unsampled_outputs = train_test.load_series(train_test.find_files(args.training_dir, "power")).dropna()
+    unsampled_outputs = loaders.load_series(loaders.find_files(args.training_dir, "power")).dropna()
     if args.resample:
         unsampled_outputs = unsampled_outputs.resample(args.resample).mean().dropna()
     clipper = helpers.sk.OutputClippedTransform.from_data(unsampled_outputs.values)
