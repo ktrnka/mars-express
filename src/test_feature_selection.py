@@ -478,9 +478,9 @@ def main():
 
     print("Baselines (new unpruned features)")
     cross_validate(dataset, sklearn.dummy.DummyRegressor())
-    test_models(dataset, "baseline", with_nn=False)
+    test_models(dataset, "baseline", with_nn=False, with_rnn=False)
 
-    tuning_splits = dataset.split_map["alex"]
+    tuning_splits = dataset.split_map["alexcv"]
 
     # data size * total features * cv (1 pass)
     test_select_from_en_cv(dataset, args.num_features, tuning_splits)

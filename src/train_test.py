@@ -25,7 +25,7 @@ import helpers.general
 import helpers.neural
 import helpers.sk
 from helpers.sk import rms_error
-from loaders import load_data_fixed, load_split_data
+from loaders import load_split_data
 
 
 def parse_args():
