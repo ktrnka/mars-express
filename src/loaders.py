@@ -648,6 +648,7 @@ def hourly_event_count(event_data, index):
 
 def parse_cut_feature(range_feature_name):
     """Parse a feature like sz__(95.455, 101.35] into sz, 95.455, 101.35"""
+    # TODO: Handle features like _rolling_64d and parse the bits
     base_name, ranges = range_feature_name.split("__")
     lower, upper = ranges[1:-1].split(", ")
 
