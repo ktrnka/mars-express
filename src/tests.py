@@ -1,7 +1,8 @@
 import unittest
 from operator import itemgetter
 
-from loaders import parse_cut_feature
+import fixed_features
+from loaders import parse_cut_feature, select_features
 from test_feature_selection import split_feature_name, diversify
 
 
@@ -54,3 +55,9 @@ class TestSaafFeatureNameParser(unittest.TestCase):
         self.assertEqual("sz", base)
         self.assertEqual(124.7, lower)
         self.assertEqual(179.735, upper)
+
+    def test_feature_sel(self):
+        selected_features = select_features(fixed_features.feature_weights, 10)
+        self.assertEqual(selected_features[0], fixed_features.feature_weights[0][0])
+        self.assertEqual(selected_features[1], fixed_features.feature_weights[1][0])
+        self.assertEqual(10, len(selected_features))

@@ -46,7 +46,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
 
-    event_sampled_df["FTL_flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
+    event_sampled_df["FTL_flagcomms"] = get_event_series(event_sampling_index,
+                                                         get_ftl_periods(ftl_data[ftl_data.flagcomms]))
     add_lag_feature(event_sampled_df, "FTL_flagcomms", 12, "1h")
     add_lag_feature(event_sampled_df, "FTL_flagcomms", -12, "next1h")
     add_lag_feature(event_sampled_df, "FTL_flagcomms", 2 * 12, "2h")
@@ -57,7 +58,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     # select columns or take preselected ones
     for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK"]:
         dest_name = "FTL_" + ftl_type
-        event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
+        event_sampled_df[dest_name] = get_event_series(event_sampled_df.index,
+                                                       get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
 
         add_lag_feature(event_sampled_df, dest_name, 12, "1h")
         add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
@@ -87,7 +89,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
 
     for aos_type in "MRB_AOS_10 MRB_AOS_00 MSL_AOS_10".split():
         dest_name = "EVTF_TIME_SINCE_{}".format(aos_type)
-        event_sampled_df[dest_name] = time_since_last_event(event_data[event_data.description == aos_type], event_sampled_df.index)
+        event_sampled_df[dest_name] = time_since_last_event(event_data[event_data.description == aos_type],
+                                                            event_sampled_df.index)
 
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
@@ -113,7 +116,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     # these subsystems were found partly by trial and error
     for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:15]:
         dest_name = "DMOP_COUNT_{}".format(subsys)
-        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys],
+                                                         event_sampled_df.index)
 
         add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
         add_lag_feature(event_sampled_df, dest_name, 12 * 12, "12h")
@@ -121,7 +125,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
 
         dest_name = "DMOP_TIME_SINCE_{}".format(subsys)
-        event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys],
+                                                            event_sampled_df.index)
 
     # subsystems with the command
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
@@ -129,7 +134,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:50]:
         system, command = subsys.split("_")
         dest_name = "DMOP_COUNT_{}".format(subsys)
-        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys],
+                                                         event_sampled_df.index)
 
         add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
         add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
@@ -138,7 +144,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 4, "4d")
 
         dest_name = "DMOP_TIME_SINCE_{}".format(subsys)
-        event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys],
+                                                            event_sampled_df.index)
 
         indexed_selected[system].append(command)
 
@@ -156,7 +163,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     ### SAAF ###
     saaf_data = load_series(find_files(data_dir, "saaf"))
 
-    saaf_data["SAAF_interval"] = pandas.Series(data=(saaf_data.index - numpy.roll(saaf_data.index, 1))[1:].total_seconds(), index=saaf_data.index[1:])
+    saaf_data["SAAF_interval"] = pandas.Series(
+        data=(saaf_data.index - numpy.roll(saaf_data.index, 1))[1:].total_seconds(), index=saaf_data.index[1:])
     saaf_data["SAAF_interval"].bfill(inplace=True)
 
     saaf_data = saaf_data.resample("2Min").mean().interpolate()
@@ -181,18 +189,22 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     for col in ["sx", "sy", "sz", "sa"]:
         # next hour, prev hour, prev 4, prev 16, next 4, next 16, and 30 day averages
         for interval in [-1, 1, -4, 4, -16, 16, -24 * 30, 24 * 30, -24 * 60, 24 * 60]:
-            add_lag_feature(saaf_data, col, saaf_periods * interval, make_label(interval), min_periods=saaf_periods * min(abs(interval), 24))
+            add_lag_feature(saaf_data, col, saaf_periods * interval, make_label(interval),
+                            min_periods=saaf_periods * min(abs(interval), 24))
 
     # SAAF rolling stddev, took top 2 from ElasticNet
     for num_days in [1, 8]:
-        saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
+        saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(
+            num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
     saaf_data = saaf_data.reindex(data.index, method="nearest").bfill()
 
     saaf_data.drop(["sx", "sy", "sz", "sa"], axis=1, inplace=True)
 
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
-    data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest"), saaf_quartile_df], axis=1)
+    data = pandas.concat(
+        [data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest"),
+         saaf_quartile_df], axis=1)
     assert isinstance(data, pandas.DataFrame)
 
     if filter_null_power:
@@ -258,15 +270,18 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
 
-    event_sampled_df["flagcomms"] = get_event_series(event_sampling_index, get_ftl_periods(ftl_data[ftl_data.flagcomms]))
+    event_sampled_df["flagcomms"] = get_event_series(event_sampling_index,
+                                                     get_ftl_periods(ftl_data[ftl_data.flagcomms]))
     add_lag_feature(event_sampled_df, "flagcomms", -12, "next1h")
     add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
     event_sampled_df.drop("flagcomms", axis=1, inplace=True)
 
     # select columns or take preselected ones
-    for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK", "RADIO_SCIENCE"]:
+    for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK",
+                     "RADIO_SCIENCE"]:
         dest_name = "FTL_" + ftl_type
-        event_sampled_df[dest_name] = get_event_series(event_sampled_df.index, get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
+        event_sampled_df[dest_name] = get_event_series(event_sampled_df.index,
+                                                       get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
 
         add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
         add_lag_feature(event_sampled_df, dest_name, 24, "2h")
@@ -291,9 +306,12 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     # event_sampled_df["EVTF_EARTH_LOS"] = get_earth_los(event_data, event_sampled_df.index).rolling(12, min_periods=0).mean()
 
-    event_sampled_df["EVTF_TIME_MRB_AOS_10"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_10"], event_sampled_df.index)
-    event_sampled_df["EVTF_TIME_MRB_AOS_00"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_00"], event_sampled_df.index)
-    event_sampled_df["EVTF_TIME_MSL_AOS_10"] = time_since_last_event(event_data[event_data.description == "MSL_AOS_10"], event_sampled_df.index)
+    event_sampled_df["EVTF_TIME_MRB_AOS_10"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_10"],
+                                                                     event_sampled_df.index)
+    event_sampled_df["EVTF_TIME_MRB_AOS_00"] = time_since_last_event(event_data[event_data.description == "MRB_AOS_00"],
+                                                                     event_sampled_df.index)
+    event_sampled_df["EVTF_TIME_MSL_AOS_10"] = time_since_last_event(event_data[event_data.description == "MSL_AOS_10"],
+                                                                     event_sampled_df.index)
 
     altitude_series = get_evtf_altitude(event_data, index=data.index)
     event_data.drop(["description"], axis=1, inplace=True)
@@ -318,7 +336,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     # for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:100]:
     for subsys in "AAA PSF ACF MMM TTT SSS HHH OOO MAPO MPER MOCE MOCS PENS PENE TMB VVV SXX".split():
         dest_name = "DMOP_{}_event_count".format(subsys)
-        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys],
+                                                         event_sampled_df.index)
 
     subsystem_windows = {
         "OOO": [-4, 12],
@@ -349,7 +368,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
     for subsys, hours in subsystem_windows.items():
         dest_name = "DMOP_{}_event_count".format(subsys)
-        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys], event_sampled_df.index)
+        event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys],
+                                                         event_sampled_df.index)
         add_lag_feature(event_sampled_df, dest_name, hours * 12, make_label(hours), drop=True)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
@@ -368,19 +388,19 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     saaf_periods = 30
 
     saaf_quartile_features = [(u'sz__(85.86, 90.0625]', 0.029773711557758643),
-                       (u'sa__(1.53, 5.192]', 0.018961685024380826),
-                       (u'sy__(89.77, 89.94]', 0.017065361875026698),
-                       (u'sx__(2.355, 5.298]', 0.016407419574092953),
-                       (u'sx__(32.557, 44.945]', 0.015424066115462104),
-                       (u'sz__(101.35, 107.00167]', 0.012587397977008816),
-                       (u'sz__(112.47, 117.565]', 0.010126162391495826),
-                       (u'sz__(107.00167, 112.47]', 0.0099830744754197034),
-                       (u'sz__(117.565, 121.039]', 0.0081198807115996485),
-                       (u'sa__(5.192, 18.28]', 0.0079614117402690421),
-                       (u'sy__(89.94, 90]', 0.0064161463399279106),
-                       (u'sz__(90.0625, 95.455]', 0.0060623602567580299),
-                       (u'sa__(0.739, 1.53]', 0.0050941311789206674),
-                       (u'sa__(0.198, 0.31]', 0.00064943741967410915)]
+                              (u'sa__(1.53, 5.192]', 0.018961685024380826),
+                              (u'sy__(89.77, 89.94]', 0.017065361875026698),
+                              (u'sx__(2.355, 5.298]', 0.016407419574092953),
+                              (u'sx__(32.557, 44.945]', 0.015424066115462104),
+                              (u'sz__(101.35, 107.00167]', 0.012587397977008816),
+                              (u'sz__(112.47, 117.565]', 0.010126162391495826),
+                              (u'sz__(107.00167, 112.47]', 0.0099830744754197034),
+                              (u'sz__(117.565, 121.039]', 0.0081198807115996485),
+                              (u'sa__(5.192, 18.28]', 0.0079614117402690421),
+                              (u'sy__(89.94, 90]', 0.0064161463399279106),
+                              (u'sz__(90.0625, 95.455]', 0.0060623602567580299),
+                              (u'sa__(0.739, 1.53]', 0.0050941311789206674),
+                              (u'sa__(0.198, 0.31]', 0.00064943741967410915)]
 
     saaf_quartiles = compute_saaf_quartiles(saaf_data, saaf_periods, map(itemgetter(0), saaf_quartile_features))
 
@@ -391,12 +411,15 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     # SAAF rolling stddev, took top 2 from ElasticNet
     for num_days in [1, 8]:
-        saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
+        saaf_data["SAAF_stddev_{}d".format(num_days)] = saaf_data[["sx", "sy", "sz", "sa"]].rolling(
+            num_days * 24 * saaf_periods).std().fillna(method="bfill").sum(axis=1)
     saaf_data = saaf_data.reindex(data.index, method="nearest").fillna(method="bfill")
 
     longterm_data = longterm_data.reindex(data.index, method="nearest")
 
-    data = pandas.concat([data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest"), saaf_quartile_df], axis=1)
+    data = pandas.concat(
+        [data, saaf_data, longterm_data, dmop_data, event_data, event_sampled_df.reindex(data.index, method="nearest"),
+         saaf_quartile_df], axis=1)
     assert isinstance(data, pandas.DataFrame)
 
     if filter_null_power:
@@ -518,7 +541,7 @@ def get_dmop_subsystem(dmop_data, include_command=False):
 
 def get_communication_latency(earthmars_km_series):
     """Get the one-way latency for Earth-Mars communication as a Series"""
-    return pandas.to_timedelta(earthmars_km_series/ 2.998e+5, unit="s")
+    return pandas.to_timedelta(earthmars_km_series / 2.998e+5, unit="s")
 
 
 def adjust_for_latency(data, latency_series, earth_sent=True):
@@ -607,7 +630,7 @@ def centered_ewma(series, num_spans):
     return pandas.Series(index=forward.index, data=means, name=series.name)
 
 
-def add_ewma(dataframe, feature, num_spans=24*7, drop=False):
+def add_ewma(dataframe, feature, num_spans=24 * 7, drop=False):
     assert isinstance(dataframe, pandas.DataFrame)
     new_name = "{}_ewma{}".format(feature, num_spans)
     dataframe[new_name] = centered_ewma(dataframe[feature], num_spans=num_spans)
@@ -630,7 +653,8 @@ def get_signal_level(filtered_event_data, index):
     After testing I found this didn't really matter or was very minor.
     """
     # earth_evtf = event_data[event_data.description.str.contains("RTLT")]
-    signals = filtered_event_data.description.str.contains("AOS").astype("int") - filtered_event_data.description.str.contains("LOS").astype(int)
+    signals = filtered_event_data.description.str.contains("AOS").astype(
+        "int") - filtered_event_data.description.str.contains("LOS").astype(int)
     signals_sum = signals.cumsum()
 
     # there's long total loss of signal during conjunctions so this helps to compensate
@@ -747,3 +771,7 @@ def compute_upper_bounds(dataframe):
         upsampled_data = downsampled_data.reindex(dataframe.index, method="pad")
 
         print("RMS with {} approximation: {:.3f}".format(interval, helpers.sk._rms_error(dataframe, upsampled_data)))
+
+
+def select_features(feature_weights, num_features):
+    return [feature_name for feature_name, _ in feature_weights][:num_features]
