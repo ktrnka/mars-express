@@ -20,6 +20,7 @@ from loaders import find_files, load_series, load_split_data
 Dumping ground for one-off experiments so that they don't clog up train_test so much.
 """
 
+N_JOBS = -1
 
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -50,8 +51,9 @@ def main():
     dataset = load_split_data(args)
     dataset.split_map = None
 
+    test_new_gradient_boosting(dataset)
     tune_gradient_boosting(dataset)
-    tune_random_forest(dataset)
+    # tune_random_forest(dataset)
 
 def test_features(dataset):
     from helpers.features import rfe_slow
@@ -73,7 +75,7 @@ def test_ewma_output(dataset):
 def test_tree_methods(dataset):
     import sklearn.ensemble
 
-    model = sklearn.ensemble.RandomForestRegressor(200, max_depth=30, min_samples_split=20, n_jobs=2)
+    model = sklearn.ensemble.RandomForestRegressor(200, max_depth=30, min_samples_split=20, n_jobs=N_JOBS)
     cross_validate(dataset, model)
 
 def test_skflow(dataset):
@@ -104,7 +106,7 @@ def tune_random_forest(dataset):
         "min_samples_split": range(2, 40)
     }
 
-    wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=50, n_jobs=-1, scoring=rms_error, refit=True)
+    wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=50, n_jobs=N_JOBS, scoring=rms_error, refit=True)
 
     wrapped_model.fit(dataset.inputs.copy(), dataset.outputs.copy())
     wrapped_model.print_tuning_scores()
@@ -115,7 +117,7 @@ def tune_random_forest(dataset):
 
 @helpers.general.Timed
 def tune_gradient_boosting(dataset):
-    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=150, subsample=0.9, learning_rate=0.26, min_samples_split=20, max_depth=4, random_state=4)
+    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=100, subsample=0.9, learning_rate=0.26, min_samples_split=20, max_depth=4, random_state=4)
     model = helpers.sk.MultivariateRegressionWrapper(base_model)
     cross_validate(dataset, model)
 
@@ -128,16 +130,32 @@ def tune_gradient_boosting(dataset):
     }
 
     # TODO: Up the number of hyperparameter samples greatly
-    wrapped_model = helpers.sk.MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, hyperparams, n_iter=30, refit=True, n_jobs=-1, scoring=rms_error))
+    wrapped_model = helpers.sk.MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, hyperparams, n_iter=10, refit=True, n_jobs=N_JOBS, scoring=rms_error))
 
     wrapped_model.fit(dataset.inputs.copy(), dataset.outputs.copy())
     wrapped_model.print_best_params()
 
     cross_validate(dataset, wrapped_model)
 
+@helpers.general.Timed
+def test_new_gradient_boosting(dataset):
+    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=100, subsample=0.9, learning_rate=0.26, min_samples_split=20, max_depth=4, random_state=4)
+    model = helpers.sk.JoinedMultivariateRegressionWrapper(base_model)
+    cross_validate(dataset, model)
 
-    # if args.analyse_feature_importance:
-    #     wrapped_model.print_feature_importances(feature_names)
+    hyperparams = {
+        "learning_rate": helpers.sk.RandomizedSearchCV.uniform(0.1, 0.5),
+        "max_depth": range(3, 6),
+        "min_samples_split": range(2, 40),
+        "subsample": [0.9],
+        "max_features": range(int(0.5 * dataset.inputs.shape[1]), dataset.inputs.shape[1] + 1),
+    }
+
+    wrapped_model = helpers.sk.JoinedMultivariateRegressionWrapper(helpers.sk.RandomizedSearchCV(base_model, hyperparams, n_iter=10, refit=True, n_jobs=N_JOBS, scoring=rms_error))
+    wrapped_model.fit(dataset.inputs.copy(), dataset.outputs.copy())
+    wrapped_model.estimator_.print_tuning_scores()
+
+    cross_validate(dataset, wrapped_model)
 
 
 def test_rnn_relu(dataset):
@@ -269,7 +287,7 @@ def test_rnn_elu(dataset):
         "dropout": [0.25, 0.5, .75]
     }
 
-    wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=1, scoring=rms_error,
+    wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=N_JOBS, scoring=rms_error,
                                                   cv=dataset.splits, refit=False)
 
     wrapped_model.fit(dataset.inputs, dataset.outputs)
