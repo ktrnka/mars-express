@@ -14,7 +14,7 @@ import scipy.stats
 import sys
 
 from helpers.sk import rms_error
-from loaders import load_inflated_data, centered_ewma, load_split_data
+from loaders import load_inflated_data, centered_ewma, load_split_data, select_features
 from train_test import make_nn, make_rnn, make_blr, make_rf, cross_validate, with_scaler, with_non_negative
 import sklearn.linear_model
 import sklearn.cross_validation
@@ -473,7 +473,8 @@ def main():
     #     dataset = load_split_data(args, data_loader=load_data_fixed, split_type=splits)
     #     test_models(dataset, "baseline/realigned", with_nn=True, with_rnn=True)
 
-    dataset = load_split_data(args, data_loader=load_inflated_data)
+    import fixed_features
+    dataset = load_split_data(args, data_loader=load_inflated_data, selected_features=select_features(fixed_features.feature_weights, 100))
     # dataset.split_map = None
 
     print("Baselines (new unpruned features)")

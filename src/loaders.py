@@ -238,7 +238,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     logger.info("DataFrame shape %s", data.shape)
 
     if selected_features:
-        data = data[selected_features]
+        # The feature matrix at this stage needs the file number potentially for CV and the output columns
+        data = data[selected_features + ["file_number"] + [col for col in data.columns if is_output(col)]]
         logger.info("Selecting features reduces to shape %s", data.shape)
 
     return data
@@ -486,7 +487,7 @@ def compute_saaf_quartiles(saaf_data, saaf_periods, feature_names=None, num_quar
                 interval_indicator = (saaf_data[base] > lower) & (saaf_data[base] <= upper)
 
                 rolling_count = roll(interval_indicator, -saaf_periods, min_periods=1)
-                rolling_count.rename(feature, inplace=True)
+                rolling_count.rename("{}__({}, {}]".format(base, lower, upper), inplace=True)
                 saaf_quartiles.append(rolling_count)
 
     return saaf_quartiles
