@@ -57,6 +57,7 @@ class TestSaafFeatureNameParser(unittest.TestCase):
         self.assertEqual(179.735, upper)
 
     def test_feature_sel(self):
+        # TODO: move this test
         selected_features = select_features(fixed_features.feature_weights, 10)
         self.assertEqual(selected_features[0], fixed_features.feature_weights[0][0])
         self.assertEqual(selected_features[1], fixed_features.feature_weights[1][0])

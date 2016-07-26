@@ -14,7 +14,7 @@ from helpers.features import add_lag_feature, get_event_series, roll, add_transf
 
 
 @helpers.general.Timed
-def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
+def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True, selected_features=None):
     logger = helpers.general.get_function_logger()
 
     if not os.path.isdir(data_dir):
@@ -171,7 +171,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     saaf_periods = 30
 
     # chop each one into quartiles and make indicators for the quartiles
-    saaf_quartiles = compute_saaf_quartiles(saaf_data, saaf_periods)
+    saaf_quartiles = compute_saaf_quartiles(saaf_data, saaf_periods, feature_names=selected_features)
 
     add_lag_feature(saaf_data, "SAAF_interval", saaf_periods * 4, "4h", drop=True)
 
@@ -236,11 +236,16 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
 
     logger.info("DataFrame shape %s", data.shape)
+
+    if selected_features:
+        data = data[selected_features]
+        logger.info("Selecting features reduces to shape %s", data.shape)
+
     return data
 
 
 @helpers.general.Timed
-def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True):
+def load_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True, selected_features=None):
     logger = helpers.general.get_function_logger()
 
     if not os.path.isdir(data_dir):
@@ -709,9 +714,9 @@ def auto_log(data, columns):
     logger.info("Changed columns: %s", changed_cols)
 
 
-def load_split_data(args, data_loader=load_data, split_type="timecv"):
+def load_split_data(args, data_loader=load_data, split_type="timecv", selected_features=None):
     """Load the data, compute cross-validation splits, scale the inputs, etc. Returns a DataSet object"""
-    data = data_loader(args.training_dir, resample_interval=args.resample, filter_null_power=True)
+    data = data_loader(args.training_dir, resample_interval=args.resample, filter_null_power=True, selected_features=selected_features)
 
     # cross validation by year
     if split_type == "timecv":
