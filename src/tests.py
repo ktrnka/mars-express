@@ -1,6 +1,7 @@
 import unittest
 from operator import itemgetter
 
+from loaders import parse_cut_feature
 from test_feature_selection import split_feature_name, diversify
 
 
@@ -37,3 +38,19 @@ class FeatureNameTests(unittest.TestCase):
         diversified_scores = diversify(feature_names, feature_scores)
         selected_features = sorted(zip(feature_names, diversified_scores), key=itemgetter(1), reverse=True)[:2]
         self.assertSequenceEqual(["DMOP_event_counts_5h", "DMOP_event_counts_next5h"], map(itemgetter(0), selected_features))
+
+class TestSaafFeatureNameParser(unittest.TestCase):
+    def test_name(self):
+        examples = ["sz__(124.7, 179.735]_rolling_next48h", "sz__(124.7, 179.735]_rolling_48h", "sz__(124.7, 179.735]"]
+
+        base, lower, upper = parse_cut_feature(examples[0])
+
+        self.assertEqual("sz", base)
+        self.assertEqual(124.7, lower)
+        self.assertEqual(179.735, upper)
+
+        base, lower, upper = parse_cut_feature(examples[1])
+
+        self.assertEqual("sz", base)
+        self.assertEqual(124.7, lower)
+        self.assertEqual(179.735, upper)

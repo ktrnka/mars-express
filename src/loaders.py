@@ -4,6 +4,7 @@ from operator import itemgetter
 
 import numpy
 import pandas
+import re
 import sklearn
 
 import helpers.general
@@ -442,9 +443,17 @@ def compute_saaf_quartiles(saaf_data, saaf_periods, feature_names=None, num_quar
             saaf_quartiles.append(quartile_hist_df)
     else:
         # if the features are specified, pull those specific ones
+        base_features = set()
+
         for feature in feature_names:
             if feature.startswith("s") and "__" in feature:
                 base, lower, upper = parse_cut_feature(feature)
+
+                # logic for handling feature specs like sz__(124.7, 179.735]_rolling_next48h sz__(124.7, 179.735] in the same list
+                base_feature_id = (base, lower, upper)
+                if base_feature_id in base_features:
+                    continue
+                base_features.add(base_feature_id)
 
                 interval_indicator = (saaf_data[base] > lower) & (saaf_data[base] <= upper)
 
@@ -648,7 +657,10 @@ def hourly_event_count(event_data, index):
 
 def parse_cut_feature(range_feature_name):
     """Parse a feature like sz__(95.455, 101.35] into sz, 95.455, 101.35"""
-    # TODO: Handle features like _rolling_64d and parse the bits
+
+    # strip any indicators like _rolling_64d
+    range_feature_name = re.sub(r"_rolling.*", "", range_feature_name)
+
     base_name, ranges = range_feature_name.split("__")
     lower, upper = ranges[1:-1].split(", ")
 
