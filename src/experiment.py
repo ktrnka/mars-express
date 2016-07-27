@@ -126,11 +126,12 @@ def tune_gradient_boosting(dataset):
         "max_depth": range(3, 6),
         "min_samples_split": range(2, 40),
         "subsample": [0.9],
-        "max_features": range(int(0.5 * dataset.inputs.shape[1]), dataset.inputs.shape[1] + 1),
+        "max_features": range(int(0.8 * dataset.inputs.shape[1]), dataset.inputs.shape[1] + 1),
+        # "loss": ["ls", "lad", "huber", "quantile"]
     }
 
     # TODO: Up the number of hyperparameter samples greatly
-    wrapped_model = helpers.sk.MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, hyperparams, n_iter=10, refit=True, n_jobs=N_JOBS, scoring=rms_error))
+    wrapped_model = helpers.sk.MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, hyperparams, n_iter=10, cv=4, refit=True, n_jobs=N_JOBS, scoring=rms_error))
 
     wrapped_model.fit(dataset.inputs.copy(), dataset.outputs.copy())
     wrapped_model.print_best_params()
@@ -139,19 +140,20 @@ def tune_gradient_boosting(dataset):
 
 @helpers.general.Timed
 def test_new_gradient_boosting(dataset):
-    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=100, subsample=0.9, learning_rate=0.26, min_samples_split=20, max_depth=4, random_state=4)
+    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=100, learning_rate=0.26, min_samples_split=20, max_depth=4, random_state=4)
     model = helpers.sk.JoinedMultivariateRegressionWrapper(base_model)
     cross_validate(dataset, model)
 
     hyperparams = {
-        "learning_rate": helpers.sk.RandomizedSearchCV.uniform(0.1, 0.5),
-        "max_depth": range(3, 6),
+        "learning_rate": helpers.sk.RandomizedSearchCV.uniform(0.05, 0.4),
+        "max_depth": range(7, 12),
         "min_samples_split": range(2, 40),
-        "subsample": [0.9],
-        "max_features": range(int(0.5 * dataset.inputs.shape[1]), dataset.inputs.shape[1] + 1),
+        # "subsample": [0.9],
+        "max_features": range(int(0.8 * dataset.inputs.shape[1]), dataset.inputs.shape[1] + 1),
+        # "loss": ["ls", "lad", "huber", "quantile"]
     }
 
-    wrapped_model = helpers.sk.JoinedMultivariateRegressionWrapper(helpers.sk.RandomizedSearchCV(base_model, hyperparams, n_iter=10, refit=True, n_jobs=N_JOBS, scoring=rms_error))
+    wrapped_model = helpers.sk.JoinedMultivariateRegressionWrapper(helpers.sk.RandomizedSearchCV(base_model, hyperparams, n_iter=10, refit=True, cv=4, n_jobs=N_JOBS, scoring=rms_error))
     wrapped_model.fit(dataset.inputs.copy(), dataset.outputs.copy())
     wrapped_model.estimator_.print_tuning_scores()
 
