@@ -53,7 +53,7 @@ def main():
 
     test_new_gradient_boosting(dataset)
     tune_gradient_boosting(dataset)
-    # tune_random_forest(dataset)
+    tune_random_forest(dataset)
 
 def test_features(dataset):
     from helpers.features import rfe_slow
