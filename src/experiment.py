@@ -247,17 +247,17 @@ def test_resample_clipper(training_dir):
 
 def test_schedules(dataset):
     """Try a few different learning rate schedules"""
-    model, prefix = make_nn()
-    model.set_params(**{prefix + "val": 0.1})
+    model, prefix = make_rnn(non_negative=True)
+    # model.set_params(**{prefix + "val": 0.1})
 
     # base = no schedule
-    print("Baseline NN")
+    print("Baseline RNN")
     # model.set_params(**{prefix + "history_file": "nn_default.csv"})
     cross_validate(dataset, model)
     # model.fit(dataset.inputs, dataset.outputs)
 
     # higher init, decay set to reach the same at 40 epochs
-    print("NN with decay")
+    print("RNN with decay")
     model.set_params(**{prefix + "lr_decay": "DecreasingLearningRateScheduler"})
     # model.fit(dataset.inputs, dataset.outputs)
     cross_validate(dataset, model)
