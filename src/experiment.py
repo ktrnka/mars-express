@@ -20,7 +20,7 @@ from loaders import find_files, load_series, load_split_data
 Dumping ground for one-off experiments so that they don't clog up train_test so much.
 """
 
-N_JOBS = -1
+N_JOBS = 1
 
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -47,13 +47,15 @@ def test_mlp_ensembles(dataset):
 
 def main():
     args = parse_args()
-    logging.basicConfig(level=logging.WARNING)
+    logging.basicConfig(level=logging.INFO)
     dataset = load_split_data(args)
     dataset.split_map = None
 
-    test_new_gradient_boosting(dataset)
-    tune_gradient_boosting(dataset)
-    tune_random_forest(dataset)
+    test_schedules(dataset)
+
+    # test_new_gradient_boosting(dataset)
+    # tune_gradient_boosting(dataset)
+    # tune_random_forest(dataset)
 
 def test_features(dataset):
     from helpers.features import rfe_slow
@@ -245,25 +247,21 @@ def test_resample_clipper(training_dir):
 
 def test_schedules(dataset):
     """Try a few different learning rate schedules"""
-    model, _ = make_nn()
-    model.val = 0.1
+    model, prefix = make_nn()
+    model.set_params(**{prefix + "val": 0.1})
 
     # base = no schedule
     print("Baseline NN")
-    model.history_file = "nn_default.csv"
-    model.fit(dataset.inputs, dataset.outputs)
+    # model.set_params(**{prefix + "history_file": "nn_default.csv"})
+    cross_validate(dataset, model)
+    # model.fit(dataset.inputs, dataset.outputs)
 
     # higher init, decay set to reach the same at 40 epochs
-    model.schedule = helpers.neural.make_learning_rate_schedule(model.learning_rate, exponential_decay=0.94406087628)
     print("NN with decay")
-    model.history_file = "nn_decay.csv"
-    model.fit(dataset.inputs, dataset.outputs)
+    model.set_params(**{prefix + "lr_decay": "DecreasingLearningRateScheduler"})
+    # model.fit(dataset.inputs, dataset.outputs)
+    cross_validate(dataset, model)
 
-    model.schedule = None
-    model.extra_callback = helpers.neural.AdaptiveLearningRateScheduler(model.learning_rate, monitor="val_loss", scale=1.1, window=5)
-    print("NN with variance schedule")
-    model.history_file = "nn_variance_schedule.csv"
-    model.fit(dataset.inputs, dataset.outputs)
 
 
 def test_rnn_elu(dataset):
