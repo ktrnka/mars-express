@@ -136,8 +136,9 @@ def predict_test_data(X_train, Y_train, args):
     Y_pred = model.predict(X_test)
     test_data[Y_train.columns] = Y_pred
 
-    verify_predictions(X_test, baseline_model, model)
-    print("Percent of predictions in training data range: {:.2f}%".format(100. * predictions_in_training_range(Y_train, Y_pred)))
+    with io.open(os.path.join(args.output_dir, "train.log"), "w", encoding="UTF-8") as log_out:
+        verify_predictions(X_test, baseline_model, model, log_out)
+        print("Percent of predictions in training data range: {:.2f}%".format(100. * predictions_in_training_range(Y_train, Y_pred)), file=log_out)
 
     matplotlib.use("Agg")
     save_history(model, os.path.join(args.output_dir, "learning_curve.png"))
@@ -149,7 +150,7 @@ def predict_test_data(X_train, Y_train, args):
     test_data[Y_test.columns].to_csv(with_date(with_model_name(with_num_features(output_file_base, X_train), model, snake_case=True)), index_label="ut_ms")
 
 
-def verify_predictions(X_test, baseline_model, model):
+def verify_predictions(X_test, baseline_model, model, out_stream):
     Y_pred_baseline = baseline_model.predict(X_test)
     Y_pred = model.predict(X_test)
 
@@ -159,18 +160,18 @@ def verify_predictions(X_test, baseline_model, model):
     unusual_rows = ~(per_row < 5)
     unusual_count = unusual_rows.sum()
     if unusual_count > 0:
-        print("{:.1f}% ({:,} / {:,}) of rows have unusual predictions:".format(100. * unusual_count / Y_pred.shape[0], unusual_count, Y_pred.shape[0]))
+        print("{:.1f}% ({:,} / {:,}) of rows have unusual predictions:".format(100. * unusual_count / Y_pred.shape[0], unusual_count, Y_pred.shape[0]), file=out_stream)
 
         unusual_inputs = X_test[unusual_rows].reshape(-1, X_test.shape[1])
         unusual_outputs = Y_pred[unusual_rows].reshape(-1, Y_pred.shape[1])
 
         for i in range(unusual_inputs.shape[0]):
-            print(("Input: ", unusual_inputs[i]))
-            print(("Output: ", unusual_outputs[i]))
+            print(("Input: ", unusual_inputs[i]), file=out_stream)
+            print(("Output: ", unusual_outputs[i]), file=out_stream)
 
     overall_delta = per_row.mean()
-    print("Percent change from baseline: {:.2f}%".format(100. * overall_delta))
-    print("Percent predictions below zero: {:.1f}%".format(100 * (Y_pred < 0).mean()))
+    print("Percent change from baseline: {:.2f}%".format(100. * overall_delta), file=out_stream)
+    print("Percent predictions below zero: {:.1f}%".format(100 * (Y_pred < 0).mean()), file=out_stream)
 
 
 def main():
