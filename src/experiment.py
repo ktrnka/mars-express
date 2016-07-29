@@ -14,19 +14,21 @@ import helpers.neural
 import helpers.sk
 from helpers.sk import rms_error, with_val
 from loaders import find_files, load_series, load_split_data, add_loader_parse, get_loader
-from train_test import make_nn, cross_validate, make_rnn, with_non_negative, with_scaler
+from train_test import make_nn, cross_validate, make_rnn, with_non_negative, with_scaler, with_append_mean
 
 """
 Dumping ground for one-off experiments so that they don't clog up train_test so much.
 """
 
-N_JOBS = 1
+N_JOBS = -1
 
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--verify", default=False, action="store_true", help="Run verifications on the input data for outliers and such")
     parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
     parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
+    parser.add_argument("--split", default="alex", choices=["timecv", "years", "alex"])
+
     parser.add_argument("training_dir", help="Dir with the training CSV files or joined CSV file with the complete feature matrix")
     add_loader_parse(parser)
     return parser.parse_args()
@@ -49,10 +51,10 @@ def test_mlp_ensembles(dataset):
 def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO)
-    dataset = load_split_data(args, data_loader=get_loader(args))
+    dataset = load_split_data(args, data_loader=get_loader(args), split_type=args.split)
     dataset.split_map = None
 
-    test_rnn_no_early_stop(dataset)
+    test_rnn_params_last_ditch_effort(dataset)
 
 def test_features(dataset):
     from helpers.features import rfe_slow
@@ -140,6 +142,16 @@ def tune_gradient_boosting(dataset):
 @helpers.general.Timed
 def test_new_gradient_boosting(dataset):
     base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=100, learning_rate=0.08, min_samples_split=20, max_depth=9, max_features=90, random_state=4)
+    model = helpers.sk.JoinedMultivariateRegressionWrapper(base_model)
+    cross_validate(dataset, model)
+
+    # hyperparam tuning is slow so just pick 2-3
+    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=200, learning_rate=0.06, min_samples_split=20, max_depth=9, max_features=90, random_state=4)
+    model = helpers.sk.JoinedMultivariateRegressionWrapper(base_model)
+    cross_validate(dataset, model)
+
+    # hyperparam tuning is slow so just pick 2-3
+    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=100, learning_rate=0.1, min_samples_split=20, max_depth=9, max_features=90, random_state=4)
     model = helpers.sk.JoinedMultivariateRegressionWrapper(base_model)
     cross_validate(dataset, model)
 
@@ -412,6 +424,39 @@ def test_stacking(dataset):
     wrapped_model = helpers.sk.RandomizedSearchCV(sklearn.linear_model.ElasticNet(), hyperparams, n_iter=30, scoring=rms_error, cv=3, refit=True)
     ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(wrapped_model))
     cross_validate(dataset, ensemble)
+
+def test_rnn_params_last_ditch_effort(dataset):
+    base_model = with_non_negative(make_rnn(time_steps=4)[0])
+
+    model2 = helpers.neural.RnnRegressor(learning_rate=7e-3,
+                                         lr_decay="DecreasingLearningRateScheduler",
+                                         clip_gradient_norm=5,
+                                         num_units=50,
+                                         time_steps=4,
+                                         batch_size=64,
+                                         num_epochs=300,
+                                         verbose=0,
+                                         input_noise=0.03,
+                                         input_dropout=0.01,
+                                         early_stopping=True,
+                                         recurrent_dropout=0.1,
+                                         dropout=0.5,
+                                         val=0.1,
+                                         assert_finite=False,
+                                         pretrain=True,
+                                         non_negative=True,
+                                         reverse=False)
+
+    model2 = with_append_mean(model2)
+    model2 = with_scaler(model2, "rnn")
+
+    for _ in range(3):
+        print("All tweaks that seem interesting to me")
+        cross_validate(dataset, model2)
+
+        print("Baseline RNN")
+        cross_validate(dataset, base_model)
+
 
 
 def test_reversed_rnn(dataset):
