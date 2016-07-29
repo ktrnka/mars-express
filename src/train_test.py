@@ -25,7 +25,7 @@ import helpers.general
 import helpers.neural
 import helpers.sk
 from helpers.sk import rms_error
-from loaders import load_split_data
+from loaders import load_split_data, add_loader_parse, get_loader
 
 
 def parse_args():
@@ -41,6 +41,8 @@ def parse_args():
     parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
     parser.add_argument("--analyse-feature-importance", default=False, action="store_true", help="Analyse feature importance and print them out for some models")
     parser.add_argument("--analyse-hyperparameters", default=False, action="store_true", help="Analyse hyperparameters and print them out for some models")
+
+    add_loader_parse(parser)
 
     parser.add_argument("training_dir", help="Dir with the training CSV files or joined CSV file with the complete feature matrix")
     return parser.parse_args()
@@ -170,7 +172,7 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO)
 
-    dataset = load_split_data(args, data_loader=load_data_fixed)
+    dataset = load_split_data(args, data_loader=get_loader(args))
 
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(dataset, baseline_model)

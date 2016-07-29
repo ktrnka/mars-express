@@ -715,9 +715,9 @@ def auto_log(data, columns):
     logger.info("Changed columns: %s", changed_cols)
 
 
-def load_split_data(args, data_loader=load_data, split_type="timecv", selected_features=None):
+def load_split_data(args, data_loader=load_data, split_type="timecv"):
     """Load the data, compute cross-validation splits, scale the inputs, etc. Returns a DataSet object"""
-    data = data_loader(args.training_dir, resample_interval=args.resample, filter_null_power=True, selected_features=selected_features)
+    data = data_loader(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     # cross validation by year
     if split_type == "timecv":
@@ -781,3 +781,28 @@ def compute_upper_bounds(dataframe):
 
 def select_features(feature_weights, num_features):
     return [feature_name for feature_name, _ in feature_weights][:num_features]
+
+
+def get_loader(args):
+    import fixed_features
+
+    features = None
+    if args.feature_id == 100:
+        return load_data
+    elif args.feature_id == 70:
+        features = select_features(fixed_features.weights_70_noisy_ensemble, 70)
+    elif args.feature_id == 120:
+        features = select_features(fixed_features.weights_120_noisy_ensemble, 120)
+    elif args.feature_id == -1:
+        features = None
+    else:
+        raise ValueError("Unknown feature picker {}".format(args.num_features))
+
+    def load_specific_data(data_dir, resample_interval=None, filter_null_power=False):
+        return load_inflated_data(data_dir, resample_interval=resample_interval, filter_null_power=filter_null_power, derived_features=True, selected_features=features)
+
+    return load_specific_data
+
+
+def add_loader_parse(parser):
+    parser.add_argument("--feature-id", default=100, type=int, help="Identifier of the feature set to use. For now it's 100, 70, or 120")

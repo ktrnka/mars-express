@@ -14,7 +14,7 @@ import scipy.stats
 import sys
 
 from helpers.sk import rms_error
-from loaders import load_inflated_data, centered_ewma, load_split_data, select_features
+from loaders import load_inflated_data, centered_ewma, load_split_data, select_features, add_loader_parse, get_loader
 from train_test import make_nn, make_rnn, make_blr, make_rf, cross_validate, with_scaler, with_non_negative
 import sklearn.linear_model
 import sklearn.cross_validation
@@ -31,6 +31,7 @@ def parse_args():
     parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
     parser.add_argument("num_features", default=40, type=int, help="Number of features to select")
     parser.add_argument("training_dir", help="Dir with the training CSV files or joined CSV file with the complete feature matrix")
+    add_loader_parse(parser)
     return parser.parse_args()
 
 
@@ -473,8 +474,8 @@ def main():
     #     dataset = load_split_data(args, data_loader=load_data_fixed, split_type=splits)
     #     test_models(dataset, "baseline/realigned", with_nn=True, with_rnn=True)
 
-    import fixed_features
-    dataset = load_split_data(args, data_loader=load_inflated_data, selected_features=select_features(fixed_features.feature_weights, 100))
+    dataset = load_split_data(args, data_loader=get_loader(args))
+
     # dataset.split_map = None
 
     print("Baselines (new unpruned features)")

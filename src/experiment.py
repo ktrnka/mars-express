@@ -14,7 +14,7 @@ import helpers.neural
 import helpers.sk
 from helpers.sk import rms_error
 from train_test import make_nn, cross_validate, make_rnn, with_non_negative, with_scaler
-from loaders import find_files, load_series, load_split_data
+from loaders import find_files, load_series, load_split_data, add_loader_parse, get_loader
 
 """
 Dumping ground for one-off experiments so that they don't clog up train_test so much.
@@ -28,6 +28,7 @@ def parse_args():
     parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
     parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
     parser.add_argument("training_dir", help="Dir with the training CSV files or joined CSV file with the complete feature matrix")
+    add_loader_parse(parser)
     return parser.parse_args()
 
 
@@ -48,14 +49,10 @@ def test_mlp_ensembles(dataset):
 def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO)
-    dataset = load_split_data(args)
+    dataset = load_split_data(args, data_loader=get_loader(args))
     dataset.split_map = None
 
-    test_rnn_no_early_stop(dataset)
-
-    # test_new_gradient_boosting(dataset)
-    # tune_gradient_boosting(dataset)
-    # tune_random_forest(dataset)
+    test_stacking(dataset)
 
 def test_features(dataset):
     from helpers.features import rfe_slow
@@ -142,24 +139,24 @@ def tune_gradient_boosting(dataset):
 
 @helpers.general.Timed
 def test_new_gradient_boosting(dataset):
-    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=100, learning_rate=0.26, min_samples_split=20, max_depth=4, random_state=4)
+    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=100, learning_rate=0.08, min_samples_split=20, max_depth=9, max_features=90, random_state=4)
     model = helpers.sk.JoinedMultivariateRegressionWrapper(base_model)
     cross_validate(dataset, model)
 
-    hyperparams = {
-        "learning_rate": helpers.sk.RandomizedSearchCV.uniform(0.05, 0.4),
-        "max_depth": range(7, 12),
-        "min_samples_split": range(2, 40),
-        # "subsample": [0.9],
-        "max_features": range(int(0.8 * dataset.inputs.shape[1]), dataset.inputs.shape[1] + 1),
-        # "loss": ["ls", "lad", "huber", "quantile"]
-    }
-
-    wrapped_model = helpers.sk.JoinedMultivariateRegressionWrapper(helpers.sk.RandomizedSearchCV(base_model, hyperparams, n_iter=10, refit=True, cv=4, n_jobs=N_JOBS, scoring=rms_error))
-    wrapped_model.fit(dataset.inputs.copy(), dataset.outputs.copy())
-    wrapped_model.estimator_.print_tuning_scores()
-
-    cross_validate(dataset, wrapped_model)
+    # hyperparams = {
+    #     "learning_rate": helpers.sk.RandomizedSearchCV.uniform(0.05, 0.15),
+    #     "max_depth": range(7, 12),
+    #     "min_samples_split": range(2, 40),
+    #     # "subsample": [0.9],
+    #     "max_features": range(int(0.8 * dataset.inputs.shape[1]), dataset.inputs.shape[1] + 1),
+    #     # "loss": ["ls", "lad", "huber", "quantile"]
+    # }
+    #
+    # wrapped_model = helpers.sk.JoinedMultivariateRegressionWrapper(helpers.sk.RandomizedSearchCV(base_model, hyperparams, n_iter=10, refit=True, cv=4, n_jobs=N_JOBS, scoring=rms_error))
+    # wrapped_model.fit(dataset.inputs.copy(), dataset.outputs.copy())
+    # wrapped_model.estimator_.print_tuning_scores()
+    #
+    # cross_validate(dataset, wrapped_model)
 
 
 def test_rnn_relu(dataset):
@@ -382,7 +379,18 @@ def test_stacking(dataset):
         "normalize": [True, False],
         "l1_ratio": helpers.sk.RandomizedSearchCV.uniform(.25, .75)
     }
-    wrapped_model = helpers.sk.RandomizedSearchCV(sklearn.linear_model.ElasticNet(), hyperparams, n_iter=30, scoring=rms_error, cv=3, refit=True)
+    wrapped_model = helpers.sk.RandomizedSearchCV(sklearn.linear_model.ElasticNet(), hyperparams, n_iter=10, scoring=rms_error, cv=3, refit=True)
+    ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(wrapped_model))
+    cross_validate(dataset, ensemble)
+
+    print("ElasticNet/tuned stacking more aggressive")
+    hyperparams = {
+        "fit_intercept": [True, False],
+        "alpha": helpers.sk.RandomizedSearchCV.exponential(1, 1e-5),
+        "normalize": [True, False],
+        "l1_ratio": helpers.sk.RandomizedSearchCV.uniform(.1, .9)
+    }
+    wrapped_model = helpers.sk.RandomizedSearchCV(sklearn.linear_model.ElasticNet(), hyperparams, n_iter=40, scoring=rms_error, cv=3, refit=True)
     ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(wrapped_model))
     cross_validate(dataset, ensemble)
 

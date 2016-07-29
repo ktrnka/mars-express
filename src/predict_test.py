@@ -13,7 +13,7 @@ import sys
 
 from helpers.general import with_num_features, with_date, _with_extra
 from helpers.sk import with_model_name, predictions_in_training_range
-from loaders import separate_output, load_data
+from loaders import separate_output, add_loader_parse, get_loader
 from train_test import make_nn, make_rnn, make_blr, make_rf
 import helpers.sk
 import sklearn.linear_model
@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument("training_dir", help="Dir with the training CSV files")
     parser.add_argument("testing_dir", help="Dir with the testing files, including the empty prediction file")
     parser.add_argument("prediction_file", help="Destination for predictions")
-
+    add_loader_parse(parser)
     return parser.parse_args()
 
 
@@ -42,8 +42,11 @@ def get_model(model_name):
     elif model_name == "rnn_relu":
         return make_rnn(history_file="rnn_learning.csv", non_negative=True)[0]
     elif model_name == "rnnx2":
-        base_model = make_rnn(history_file="rnn_learning.csv", time_steps=12)[0]
+        base_model = make_rnn(history_file="rnn_learning.csv", time_steps=8)[0]
         return helpers.sk.AverageClonedRegressor(base_model, 2)
+    elif model_name == "rnnx3":
+        base_model = make_rnn(history_file="rnn_learning.csv", time_steps=8)[0]
+        return helpers.sk.AverageClonedRegressor(base_model, 3)
     elif model_name == "blr":
         return make_blr()
     elif model_name in {"elastic", "elasticnet", "en"}:
@@ -122,7 +125,8 @@ def predict_test_data(X_train, Y_train, args):
 
     model = model.fit(X_train, Y_train.values)
 
-    test_data = load_data(args.testing_dir)
+    loader = get_loader(args)
+    test_data = loader(args.testing_dir)
     X_test, Y_test = separate_output(test_data)
 
     Y_pred = model.predict(X_test)
@@ -171,7 +175,8 @@ def main():
 
     logging.basicConfig(level=logging.INFO)
 
-    train_data = load_data(args.training_dir, resample_interval=args.resample, filter_null_power=True)
+    loader = get_loader(args)
+    train_data = loader(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     X_train, Y_train = separate_output(train_data)
 
