@@ -20,8 +20,7 @@ import sklearn.linear_model
 import helpers.general
 import helpers.sk
 from helpers.sk import rms_error
-from loaders import centered_ewma, load_split_data, get_loader, \
-    add_loader_arguments
+from loaders import centered_ewma, load_split_data, get_loader, add_loader_arguments
 from train_test import make_nn, make_rnn, cross_validate, with_scaler, with_non_negative
 
 
@@ -293,7 +292,7 @@ def test_cv_ensemble(dataset, num_features, splits):
     test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Ensemble of ENCV on both CV splits")
 
 
-def test_mega_ensemble(dataset, num_features, splits, noise=0.01, noise_iter=3):
+def test_mega_ensemble(dataset, num_features, splits, noise=0.03, noise_iter=5):
     scorers = [score_features_elasticnet]
 
     scores = []
@@ -303,7 +302,8 @@ def test_mega_ensemble(dataset, num_features, splits, noise=0.01, noise_iter=3):
             for scorer in scorers:
                 scores.append(cross_validated_select(noised_data, cv, scorer))
 
-    scores = numpy.vstack(scores).mean(axis=0)
+    joined_scores = numpy.vstack(scores)
+    scores = joined_scores.mean(axis=0) - 0.05 * joined_scores.std(axis=0)
     test_models(dataset.select_features(num_features, scores, verbose=1), "Noise*CV*model ensemble")
 
     diversified_scores = diversify(dataset.feature_names, scores)
@@ -463,27 +463,17 @@ def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO)
 
-    # for splits in "timecv years alex".split():
-    #     print("Baselines (regular features, {})".format(splits))
-    #     dataset = load_split_data(args, data_loader=load_data, split_type=splits)
-    #     test_models(dataset, "baseline", with_nn=True, with_rnn=True)
-    #
-    #     print("Baselines (fixed features, {})".format(splits))
-    #     dataset = load_split_data(args, data_loader=load_data_fixed, split_type=splits)
-    #     test_models(dataset, "baseline/realigned", with_nn=True, with_rnn=True)
-
     dataset = load_split_data(args, data_loader=get_loader(args))
-
     # dataset.split_map = None
 
-    print("Baselines (new unpruned features)")
+    print("Baselines")
     cross_validate(dataset, sklearn.dummy.DummyRegressor())
     test_models(dataset, "baseline", with_nn=False, with_rnn=False)
 
     tuning_splits = dataset.split_map["alexcv"]
 
     # data size * total features * cv (1 pass)
-    test_select_from_en_cv(dataset, args.num_features, tuning_splits)
+    # test_select_from_en_cv(dataset, args.num_features, tuning_splits)
 
     # data size * total features * cv * num noise
     # test_noise_insensitivity(dataset, args.num_features, tuning_splits)
@@ -497,7 +487,7 @@ def main():
     # test_select_from_en(dataset, args.num_features)
 
     # reduced features * data size * cv * iter
-    # test_subspace_simple(dataset, args.num_features, tuning_splits, num_iter=150)
+    test_subspace_simple(dataset, args.num_features, tuning_splits, num_iter=150)
     # test_subspace_mlp(dataset, args.num_features, tuning_splits, num_iter=150)
 
     # loi = 1 * total features * data size * cv
@@ -506,7 +496,7 @@ def main():
 
     # loi + en-cv
     test_simple_ensemble(dataset, args.num_features, tuning_splits)
-    test_simple_ensemble(dataset, args.num_features, tuning_splits, loi_model="rnn")
+    # test_simple_ensemble(dataset, args.num_features, tuning_splits, loi_model="rnn")
 
     # super slow methods
     # test_rfecv_en(dataset, args.num_features, tuning_splits)
