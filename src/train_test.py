@@ -41,6 +41,7 @@ def parse_args():
     parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
     parser.add_argument("--analyse-feature-importance", default=False, action="store_true", help="Analyse feature importance and print them out for some models")
     parser.add_argument("--analyse-hyperparameters", default=False, action="store_true", help="Analyse hyperparameters and print them out for some models")
+    parser.add_argument("--split", default="alex", choices=["timecv", "years", "alex"])
 
     add_loader_parse(parser)
 
@@ -77,19 +78,19 @@ def make_nn(history_file=None, **kwargs):
     return model, prefix
 
 @helpers.general.Timed
-def experiment_neural_network(dataset, tune_params=False):
+def experiment_neural_network(dataset, tune_params=True):
     model, param_prefix = make_nn()
     cross_validate(dataset, model)
 
     if tune_params:
         print("Running hyperparam opt")
         nn_hyperparams = {
-            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-2, 1e-4),
-            "lr_decay": helpers.sk.RandomizedSearchCV.exponential(1 - 1e-2, 1 - 1e-5),
-            # "input_dropout": helpers.sk.RandomizedSearchCV.uniform(0., 0.1),
-            "input_noise": helpers.sk.RandomizedSearchCV.uniform(0.05, 0.2),
-            "hidden_units": helpers.sk.RandomizedSearchCV.uniform(100, 500),
-            "dropout": helpers.sk.RandomizedSearchCV.uniform(0.3, 0.7)
+            "learning_rate": helpers.sk.RandomizedSearchCV.exponential(1e-3, 1e-5),
+            "input_noise": helpers.sk.RandomizedSearchCV.uniform(0.02, 0.05),
+            "input_dropout": [0, 0.01],
+            "hidden_units": [None],
+            "hidden_layer_sizes": [(200,), (400,), (800,), (50, 50),],
+            # "dropout": helpers.sk.RandomizedSearchCV.uniform(0.3, 0.7)
         }
         nn_hyperparams = {param_prefix + k: v for k, v in nn_hyperparams.items()}
         model, _ = make_nn()
@@ -172,7 +173,7 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO)
 
-    dataset = load_split_data(args, data_loader=get_loader(args))
+    dataset = load_split_data(args, data_loader=get_loader(args), split_type=args.split)
 
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(dataset, baseline_model)
@@ -182,7 +183,7 @@ def main():
 
     experiment_elastic_net(dataset, feature_importance=True)
 
-    experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
+    experiment_neural_network(dataset, tune_params=True and args.analyse_hyperparameters)
 
     experiment_rnn(dataset, tune_params=True and args.analyse_hyperparameters, time_steps=args.time_steps)
 
@@ -204,7 +205,6 @@ def make_stacked_ensemble():
     ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(arbiter_model))
 
     return ensemble
-
 
 
 def experiment_elastic_net(dataset, feature_importance=True):
