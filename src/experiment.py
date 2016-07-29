@@ -13,7 +13,7 @@ import helpers.general
 import helpers.neural
 import helpers.sk
 from helpers.sk import rms_error, with_val
-from loaders import find_files, load_series, load_split_data, add_loader_parse, get_loader
+from loaders import find_files, load_series, load_split_data, get_loader, add_loader_arguments
 from train_test import make_nn, cross_validate, make_rnn, with_non_negative, with_scaler, with_append_mean
 
 """
@@ -24,13 +24,8 @@ N_JOBS = -1
 
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--verify", default=False, action="store_true", help="Run verifications on the input data for outliers and such")
-    parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
-    parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
-    parser.add_argument("--split", default="alex", choices=["timecv", "years", "alex"])
-
+    add_loader_arguments(parser)
     parser.add_argument("training_dir", help="Dir with the training CSV files or joined CSV file with the complete feature matrix")
-    add_loader_parse(parser)
     return parser.parse_args()
 
 

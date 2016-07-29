@@ -856,5 +856,10 @@ def get_loader(args):
     return load_specific_data
 
 
-def add_loader_parse(parser):
-    parser.add_argument("--feature-id", default=100, type=int, help="Identifier of the feature set to use. For now it's 100, 70, or 120")
+def add_loader_arguments(argument_parser):
+    """Add assorted command-line options that are used in loading files, splitting, and so on."""
+    argument_parser.add_argument("--feature-id", default=100, type=int, help="Identifier of the feature set to use. For now it's 30, 50, 70, 100, or 120")
+    argument_parser.add_argument("--verify", default=False, action="store_true", help="Run checks for outliers before training")
+    argument_parser.add_argument("--resample", default="1H", help="Time interval to resample the training data. Only change this for code checks.")
+    argument_parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
+    argument_parser.add_argument("--split", default="alex", choices=["timecv", "years", "alex"], help="Cross-validation splitter to use")

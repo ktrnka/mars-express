@@ -25,25 +25,18 @@ import helpers.general
 import helpers.neural
 import helpers.sk
 from helpers.sk import rms_error
-from loaders import load_split_data, add_loader_parse, get_loader
+from loaders import load_split_data, get_loader, add_loader_arguments
 
 
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-d", "--debug", default=False, action="store_true", help="Debug logging")
     parser.add_argument("-q", "--quieter", default=False, action="store_true", help="Don't show info logging messages")
+    add_loader_arguments(parser)
 
     parser.add_argument("--time-steps", default=4, type=int, help="Number of time steps for recurrent/etc models")
-    parser.add_argument("--verify", default=False, action="store_true", help="Run verifications on the input data for outliers and such")
-
-    parser.add_argument("--feature-pairs", default=False, action="store_true", help="Try out pairs of features")
-    parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
-    parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
     parser.add_argument("--analyse-feature-importance", default=False, action="store_true", help="Analyse feature importance and print them out for some models")
     parser.add_argument("--analyse-hyperparameters", default=False, action="store_true", help="Analyse hyperparameters and print them out for some models")
-    parser.add_argument("--split", default="alex", choices=["timecv", "years", "alex"])
-
-    add_loader_parse(parser)
 
     parser.add_argument("training_dir", help="Dir with the training CSV files or joined CSV file with the complete feature matrix")
     return parser.parse_args()

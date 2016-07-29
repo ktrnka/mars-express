@@ -2,34 +2,33 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import argparse
-import io
-
 import collections
+import io
 import logging
+import os.path
+import sys
 
 import numpy
 import pandas
-import sys
+import sklearn.linear_model
 
+import helpers.sk
 from helpers.debug import compute_input_fairness
 from helpers.general import with_num_features, with_date, _with_extra
 from helpers.sk import with_model_name, predictions_in_training_range
-from loaders import separate_output, add_loader_parse, get_loader, is_output
+from loaders import separate_output, get_loader, add_loader_arguments
 from train_test import make_nn, make_rnn, make_blr, make_rf, make_stacked_ensemble
-import helpers.sk
-import sklearn.linear_model
-import os.path
+
 
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
+    add_loader_arguments(parser)
     parser.add_argument("--model", default="nn", help="Model to generate predictions with")
     parser.add_argument("--graph-dir", default=None, help="Generate graphs of predictions and learning curves into this dir")
     parser.add_argument("--clip", default=None, help="Json file with saved output clip min and max values")
     parser.add_argument("training_dir", help="Dir with the training CSV files")
     parser.add_argument("testing_dir", help="Dir with the testing files, including the empty prediction file")
     parser.add_argument("prediction_file", help="Destination for predictions")
-    add_loader_parse(parser)
     return parser.parse_args()
 
 

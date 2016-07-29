@@ -2,36 +2,34 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import argparse
+import collections
 import logging
 import re
-
-import collections
+import sys
 from operator import itemgetter
 
 import numpy
 import pandas
 import scipy.stats
-import sys
-
-from helpers.sk import rms_error
-from loaders import load_inflated_data, centered_ewma, load_split_data, select_features, add_loader_parse, get_loader
-from train_test import make_nn, make_rnn, make_blr, make_rf, cross_validate, with_scaler, with_non_negative
-import sklearn.linear_model
 import sklearn.cross_validation
-import sklearn.feature_selection
-import sklearn.ensemble
-import helpers.sk
-import helpers.general
 import sklearn.dummy
+import sklearn.ensemble
+import sklearn.feature_selection
+import sklearn.linear_model
+
+import helpers.general
+import helpers.sk
+from helpers.sk import rms_error
+from loaders import centered_ewma, load_split_data, get_loader, \
+    add_loader_arguments
+from train_test import make_nn, make_rnn, cross_validate, with_scaler, with_non_negative
+
 
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--verify", default=False, action="store_true", help="Run verifications on the input data for outliers and such")
-    parser.add_argument("--resample", default="1H", help="Time interval to resample the training data")
-    parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")
+    add_loader_arguments(parser)
     parser.add_argument("num_features", default=40, type=int, help="Number of features to select")
     parser.add_argument("training_dir", help="Dir with the training CSV files or joined CSV file with the complete feature matrix")
-    add_loader_parse(parser)
     return parser.parse_args()
 
 
@@ -504,7 +502,7 @@ def main():
 
     # loi = 1 * total features * data size * cv
     # loo = total features * total - 1 * data size * cv
-    # test_loo_loi(dataset, args.num_features, tuning_splits)
+    test_loo_loi(dataset, args.num_features, tuning_splits)
 
     # loi + en-cv
     test_simple_ensemble(dataset, args.num_features, tuning_splits)
