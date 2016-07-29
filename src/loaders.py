@@ -12,6 +12,47 @@ import helpers.sk
 from helpers.debug import verify_data, compute_cross_validation_fairness
 from helpers.features import add_lag_feature, get_event_series, roll, add_transformation_feature, TimeRange
 
+DMOP_PATTERN = re.compile(r"^DMOP_(?:COUNT|TIME_SINCE)_([A-Z0-9_]+)(?:_[a-z].*)?$")
+
+
+def extract_re_from_list(pattern, group_number, items):
+    for item in items:
+        match = pattern.match(item)
+        if match:
+            yield match.group(group_number)
+
+
+def check_command_names(available_base_features, requested_features):
+    logger = helpers.general.get_function_logger()
+    requested_base_features = set(extract_re_from_list(DMOP_PATTERN, 1, requested_features))
+
+    if not any("_" in f for f in available_base_features):
+        requested_base_features = [f for f in requested_base_features if "_" not in f]
+    else:
+        requested_base_features = [f for f in requested_base_features if "_" in f]
+
+    logger.info("Available features: %s", ", ".join(sorted(available_base_features)))
+    logger.info("Requested base features: %s", ", ".join(sorted(requested_base_features)))
+
+    for feature in requested_base_features:
+        if feature not in available_base_features:
+            logger.error("Missing from available features: %s", feature)
+
+
+def get_dmop_names(dmop_subsystems, num, features):
+    """Return top num dmop names but if features is specified, parse the dmop names from those"""
+    if features:
+        command_names = set(dmop_subsystems.value_counts().sort_values(ascending=False).index)
+        check_command_names(command_names, features)
+        selected_commands = []
+        for command in command_names:
+            if any(command in feature_name for feature_name in features):
+                selected_commands.append(command)
+
+        return selected_commands
+    else:
+        return dmop_subsystems.value_counts().sort_values(ascending=False).index[:num]
+
 
 @helpers.general.Timed
 def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False, derived_features=True, selected_features=None):
@@ -114,7 +155,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
 
     # these subsystems were found partly by trial and error
-    for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:15]:
+    for subsys in get_dmop_names(dmop_subsystems, num=15, features=selected_features):
         dest_name = "DMOP_COUNT_{}".format(subsys)
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys],
                                                          event_sampled_df.index)
@@ -131,7 +172,7 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     # subsystems with the command
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=True)
     indexed_selected = collections.defaultdict(list)
-    for subsys in dmop_subsystems.value_counts().sort_values(ascending=False).index[:50]:
+    for subsys in get_dmop_names(dmop_subsystems, num=50, features=selected_features):
         system, command = subsys.split("_")
         dest_name = "DMOP_COUNT_{}".format(subsys)
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys],
@@ -780,7 +821,8 @@ def compute_upper_bounds(dataframe):
 
 
 def select_features(feature_weights, num_features):
-    return [feature_name for feature_name, _ in feature_weights][:num_features]
+    blacklist = set("MMM_F05A0 AAA_F20E1 TTT_F310B TTT_F310A VVV_03B0".split())
+    return [feature_name for feature_name, _ in feature_weights if not any(bad_feat in feature_name for bad_feat in blacklist)][:num_features]
 
 
 def get_loader(args):
