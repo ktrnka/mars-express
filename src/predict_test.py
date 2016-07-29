@@ -89,7 +89,10 @@ def get_history(model):
     try:
         return model.history_df_
     except AttributeError:
-        return get_history(model.estimator_)
+        try:
+            return get_history(model.estimator_)
+        except AttributeError:
+            return get_history(model._final_estimator)
 
 
 def save_history(model, output_file):
