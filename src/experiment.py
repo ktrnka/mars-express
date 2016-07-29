@@ -1,10 +1,10 @@
-from __future__ import unicode_literals
 from __future__ import print_function
+from __future__ import unicode_literals
 
+import argparse
 import collections
 import logging
 import sys
-import argparse
 from operator import itemgetter
 
 import sklearn
@@ -12,9 +12,9 @@ import sklearn
 import helpers.general
 import helpers.neural
 import helpers.sk
-from helpers.sk import rms_error
-from train_test import make_nn, cross_validate, make_rnn, with_non_negative, with_scaler
+from helpers.sk import rms_error, with_val
 from loaders import find_files, load_series, load_split_data, add_loader_parse, get_loader
+from train_test import make_nn, cross_validate, make_rnn, with_non_negative, with_scaler
 
 """
 Dumping ground for one-off experiments so that they don't clog up train_test so much.
@@ -327,24 +327,6 @@ def test_stateful_rnn(dataset):
     model.stateful = True
     cross_validate(dataset, model)
 
-
-class ValidationWrapper(sklearn.base.BaseEstimator):
-    def __init__(self, base_estimator, val=0.1):
-        self.base_estimator = base_estimator
-        self.val = val
-
-        self.estimator_ = None
-
-    def fit(self, X, Y):
-        val_start = int((1 - self.val) * X.shape[0])
-        self.estimator_ = sklearn.base.clone(self.base_estimator).fit(X[:val_start], Y[:val_start])
-        return self
-
-    def predict(self, X):
-        return self.estimator_.predict(X)
-
-def with_val(model, val=0.1):
-    return ValidationWrapper(model, val)
 
 def test_stacking(dataset):
     # build the component models

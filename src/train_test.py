@@ -64,7 +64,7 @@ def make_nn(history_file=None, **kwargs):
                                        val=.1,
                                        maxnorm=True,
                                        history_file=history_file,
-                                       lr_decay=0.99,
+                                       lr_decay="DecreasingLearningRateScheduler",
                                        non_negative=True,
                                        assert_finite=False,
                                        **kwargs)
@@ -185,6 +185,26 @@ def main():
     experiment_neural_network(dataset, tune_params=False and args.analyse_hyperparameters)
 
     experiment_rnn(dataset, tune_params=True and args.analyse_hyperparameters, time_steps=args.time_steps)
+
+
+def make_stacked_ensemble():
+    models = [with_non_negative(make_rnn(time_steps=4)[0]),
+              with_non_negative(make_rnn(time_steps=8)[0]),
+              with_non_negative(make_rnn(time_steps=12)[0]),
+              helpers.sk.with_val(with_non_negative(make_rnn(time_steps=4, reverse=True)[0])),
+              make_nn()[0]]
+
+    hyperparams = {
+        "fit_intercept": [True, False],
+        "alpha": helpers.sk.RandomizedSearchCV.exponential(1, 1e-5),
+        "normalize": [True, False],
+        "l1_ratio": helpers.sk.RandomizedSearchCV.uniform(.25, .75)
+    }
+    arbiter_model = helpers.sk.RandomizedSearchCV(sklearn.linear_model.ElasticNet(), hyperparams, n_iter=30, scoring=rms_error, cv=3, refit=True)
+    ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(arbiter_model))
+
+    return ensemble
+
 
 
 def experiment_elastic_net(dataset, feature_importance=True):

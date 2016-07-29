@@ -14,7 +14,7 @@ import sys
 from helpers.general import with_num_features, with_date, _with_extra
 from helpers.sk import with_model_name, predictions_in_training_range
 from loaders import separate_output, add_loader_parse, get_loader
-from train_test import make_nn, make_rnn, make_blr, make_rf
+from train_test import make_nn, make_rnn, make_blr, make_rf, make_stacked_ensemble
 import helpers.sk
 import sklearn.linear_model
 import os.path
@@ -47,6 +47,8 @@ def get_model(model_name):
     elif model_name == "rnnx3":
         base_model = make_rnn(history_file="rnn_learning.csv", time_steps=8)[0]
         return helpers.sk.AverageClonedRegressor(base_model, 3)
+    elif model_name == "stacked_ensemble":
+        return make_stacked_ensemble()
     elif model_name == "blr":
         return make_blr()
     elif model_name in {"elastic", "elasticnet", "en"}:
