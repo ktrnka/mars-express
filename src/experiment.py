@@ -423,7 +423,7 @@ def test_stacking(dataset):
 def test_rnn_params_last_ditch_effort(dataset):
     base_model = with_non_negative(make_rnn(time_steps=4)[0])
 
-    model2 = helpers.neural.RnnRegressor(learning_rate=7e-3,
+    model2 = helpers.neural.RnnRegressor(learning_rate=1e-4,
                                          lr_decay="DecreasingLearningRateScheduler",
                                          clip_gradient_norm=5,
                                          num_units=50,

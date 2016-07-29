@@ -146,6 +146,7 @@ def experiment_rnn(dataset, tune_params=False, time_steps=4):
             # "dropout": helpers.sk.RandomizedSearchCV.uniform(0.35, 0.65),
             "recurrent_dropout": helpers.sk.RandomizedSearchCV.uniform(0.4, 0.7),
             "time_steps": [8],
+            "num_epochs": 600,  # some combinations need more epochs
             # "input_dropout": [0.02, 0.04],
         }
         hyperparams = {param_prefix + k: v for k, v in hyperparams.items()}
