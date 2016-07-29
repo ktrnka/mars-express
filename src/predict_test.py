@@ -11,6 +11,7 @@ import sys
 import numpy
 import pandas
 import sklearn.linear_model
+import matplotlib
 
 import helpers.sk
 from helpers.debug import compute_input_fairness
@@ -24,11 +25,10 @@ def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     add_loader_arguments(parser)
     parser.add_argument("--model", default="nn", help="Model to generate predictions with")
-    parser.add_argument("--graph-dir", default=None, help="Generate graphs of predictions and learning curves into this dir")
     parser.add_argument("--clip", default=None, help="Json file with saved output clip min and max values")
     parser.add_argument("training_dir", help="Dir with the training CSV files")
     parser.add_argument("testing_dir", help="Dir with the testing files, including the empty prediction file")
-    parser.add_argument("prediction_file", help="Destination for predictions")
+    parser.add_argument("output_dir", help="Folder to create and store predictions, graphs, etc.")
     return parser.parse_args()
 
 
@@ -139,15 +139,14 @@ def predict_test_data(X_train, Y_train, args):
     verify_predictions(X_test, baseline_model, model)
     print("Percent of predictions in training data range: {:.2f}%".format(100. * predictions_in_training_range(Y_train, Y_pred)))
 
-    if args.graph_dir:
-        import matplotlib
-        matplotlib.use("Agg")
-        save_history(model, os.path.join(args.graph_dir, "learning_curve.png"))
-        graph_predictions(X_test, baseline_model, model, Y_train, os.path.join(args.graph_dir, "predictions.png"), test_data.index)
+    matplotlib.use("Agg")
+    save_history(model, os.path.join(args.output_dir, "learning_curve.png"))
+    graph_predictions(X_test, baseline_model, model, Y_train, os.path.join(args.output_dir, "predictions.png"), test_data.index)
 
     # redo the index as unix timestamp
     test_data.index = test_data.index.astype(numpy.int64) / 10 ** 6
-    test_data[Y_test.columns].to_csv(with_date(with_model_name(with_num_features(args.prediction_file, X_train), model, snake_case=True)), index_label="ut_ms")
+    output_file_base = os.path.join(args.output_dir, "pred.csv")
+    test_data[Y_test.columns].to_csv(with_date(with_model_name(with_num_features(output_file_base, X_train), model, snake_case=True)), index_label="ut_ms")
 
 
 def verify_predictions(X_test, baseline_model, model):
@@ -184,6 +183,7 @@ def main():
 
     X_train, Y_train = separate_output(train_data)
 
+    os.makedirs(args.output_dir)
     predict_test_data(X_train, Y_train, args)
 
 
