@@ -101,9 +101,9 @@ def experiment_neural_network(dataset, tune_params=False):
         wrapped_model.print_tuning_scores()
 
 
-def make_rnn(history_file=None, time_steps=4, non_negative=False, early_stopping=True, reverse=False):
+def make_rnn(history_file=None, learning_rate=7e-4, time_steps=4, non_negative=False, early_stopping=True, reverse=False):
     """Make a recurrent neural network with reasonable default args for this task"""
-    model = helpers.neural.RnnRegressor(learning_rate=7e-4,
+    model = helpers.neural.RnnRegressor(learning_rate=learning_rate,
                                         num_units=50,
                                         time_steps=time_steps,
                                         batch_size=64,

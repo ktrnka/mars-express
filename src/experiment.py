@@ -52,7 +52,7 @@ def main():
     dataset = load_split_data(args, data_loader=get_loader(args))
     dataset.split_map = None
 
-    test_stacking(dataset)
+    test_rnn_no_early_stop(dataset)
 
 def test_features(dataset):
     from helpers.features import rfe_slow
@@ -262,7 +262,7 @@ def test_schedules(dataset):
 
 def test_rnn_no_early_stop(dataset):
     """Try a few different learning rate schedules"""
-    model, prefix = make_rnn(non_negative=True, early_stopping=False)
+    model, prefix = make_rnn()
 
     print("RNN without early stopping")
     cross_validate(dataset, model)
