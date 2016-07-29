@@ -51,7 +51,7 @@ def main():
     dataset = load_split_data(args)
     dataset.split_map = None
 
-    test_schedules(dataset)
+    test_rnn_no_early_stop(dataset)
 
     # test_new_gradient_boosting(dataset)
     # tune_gradient_boosting(dataset)
@@ -260,6 +260,17 @@ def test_schedules(dataset):
     print("RNN with decay")
     model.set_params(**{prefix + "lr_decay": "DecreasingLearningRateScheduler"})
     # model.fit(dataset.inputs, dataset.outputs)
+    cross_validate(dataset, model)
+
+
+def test_rnn_no_early_stop(dataset):
+    """Try a few different learning rate schedules"""
+    model, prefix = make_rnn(non_negative=True, early_stopping=False)
+
+    print("RNN without early stopping")
+    cross_validate(dataset, model)
+
+    print("RNN without early stopping, run 2")
     cross_validate(dataset, model)
 
 
