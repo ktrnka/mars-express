@@ -305,7 +305,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     # as far as I can tell this doesn't make a difference but it makes me feel better
     longterm_data = longterm_data.resample("1H").mean().interpolate().fillna(method="backfill")
 
-    # one_way_latency = get_communication_latency(longterm_data.earthmars_km)
+    one_way_latency = get_communication_latency(longterm_data.earthmars_km)
 
     # time-lagged version
     add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)
@@ -374,8 +374,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
 
-    # TODO - this may be incorrect and might've only been a slight help because of the bug with resampling
-    # adjust_for_latency(dmop_data, one_way_latency)
+    adjust_for_latency(dmop_data, one_way_latency)
 
     dmop_subsystems = get_dmop_subsystem(dmop_data, include_command=False)
 
@@ -495,6 +494,10 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         add_lag_feature(data, "FTL_NADIR_rolling_next1h", 400, "400")
 
     logger.info("DataFrame shape %s", data.shape)
+
+    data = data[filter_bad_features(data.columns)]
+    logger.info("Removing bad features reduces to shape %s", data.shape)
+
     return data
 
 
@@ -805,7 +808,7 @@ def separate_output(df, num_outputs=None):
         scores = collections.Counter({col: Y[col].mean() + Y[col].std() for col in Y.columns})
         Y = Y[[col for col, _ in scores.most_common(num_outputs)]]
 
-    X = df[[col for col in df.columns if not col.startswith("NPWD")]]
+    X = df[[col for col in df.columns if not is_output(col)]]
     logger.info("X, Y shapes %s %s", X.shape, Y.shape)
     return X, Y
 
@@ -820,9 +823,12 @@ def compute_upper_bounds(dataframe):
         print("RMS with {} approximation: {:.3f}".format(interval, helpers.sk._rms_error(dataframe, upsampled_data)))
 
 
+def filter_bad_features(feature_names):
+    blacklist = set("MMM_F05A0 AAA_F20E1 TTT_F310B TTT_F310A VVV_03B0 SXX SSS_F53A0 XXX SSS_F53A0 PSF_38A1 PSF_30C2 MMM_F01A0 AAA_F59A1 PSF_28A1".split())
+    return [feature for feature in feature_names if not any(bad_feat in feature for bad_feat in blacklist)]
+
 def select_features(feature_weights, num_features):
-    blacklist = set("MMM_F05A0 AAA_F20E1 TTT_F310B TTT_F310A VVV_03B0".split())
-    return [feature_name for feature_name, _ in feature_weights if not any(bad_feat in feature_name for bad_feat in blacklist)][:num_features]
+    return filter_bad_features([feature_name for feature_name, _ in feature_weights])[:num_features]
 
 
 def get_loader(args):
@@ -831,6 +837,10 @@ def get_loader(args):
     features = None
     if args.feature_id == 100:
         return load_data
+    elif args.feature_id == 30:
+        features = select_features(fixed_features.weights_70_noisy_ensemble, 30)
+    elif args.feature_id == 50:
+        features = select_features(fixed_features.weights_70_noisy_ensemble, 50)
     elif args.feature_id == 70:
         features = select_features(fixed_features.weights_70_noisy_ensemble, 70)
     elif args.feature_id == 120:
