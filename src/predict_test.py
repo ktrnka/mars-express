@@ -11,9 +11,10 @@ import numpy
 import pandas
 import sys
 
+from helpers.debug import compute_input_fairness
 from helpers.general import with_num_features, with_date, _with_extra
 from helpers.sk import with_model_name, predictions_in_training_range
-from loaders import separate_output, add_loader_parse, get_loader
+from loaders import separate_output, add_loader_parse, get_loader, is_output
 from train_test import make_nn, make_rnn, make_blr, make_rf, make_stacked_ensemble
 import helpers.sk
 import sklearn.linear_model
@@ -130,6 +131,8 @@ def predict_test_data(X_train, Y_train, args):
     loader = get_loader(args)
     test_data = loader(args.testing_dir)
     X_test, Y_test = separate_output(test_data)
+
+    compute_input_fairness(X_train.values, X_test.values, verbose=True, names=X_train.columns)
 
     Y_pred = model.predict(X_test)
     test_data[Y_train.columns] = Y_pred
