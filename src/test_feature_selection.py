@@ -309,21 +309,24 @@ def test_cv_ensemble(dataset, num_features, splits):
     test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Ensemble of ENCV on both CV splits")
 
 
-def test_cv_noise_ensemble(dataset, num_features, noise_list=[0.03], noise_iter=1, score_function=score_features_elasticnet):
+def test_cv_noise_ensemble(dataset, num_features, noise_list=[0.03], noise_iter=1, score_function=score_features_elasticnet, stddev_weight=0.05, score_cv=False):
     noise_list = noise_list * noise_iter
     scores = []
 
     for noise in noise_list:
         noised_data = with_noise(dataset, noise, temporal=True)
         for cv in dataset.split_map.values():
-            scores.append(cross_validated_select(noised_data, cv, score_function))
+            if not score_cv:
+                scores.append(cross_validated_select(noised_data, cv, score_function))
+            else:
+                scores.append(score_function(dataset.inputs, dataset.outputs, cv, rms_error))
 
     joined_scores = numpy.vstack(scores)
-    scores = joined_scores.mean(axis=0) - 0.05 * joined_scores.std(axis=0)
-    test_models(dataset.select_features(num_features, scores, verbose=1), "Noise*CV*model ensemble {}".format(score_function.__name__))
+    scores = joined_scores.mean(axis=0) - stddev_weight * joined_scores.std(axis=0)
+    test_models(dataset.select_features(num_features, scores, verbose=1), "Noise*CV ensemble {}".format(score_function.__name__))
 
     diversified_scores = diversify(dataset.feature_names, scores)
-    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Noise*CV*model ensemble {}".format(score_function.__name__))
+    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Noise*CV ensemble {}".format(score_function.__name__))
 
 
 def test_subspace_selection(dataset, num_features, splits, prefilter=True):
@@ -496,18 +499,19 @@ def main():
     # top priority = LOI
     test_models(dataset.select_features(args.num_features, score_features_loi(dataset.inputs, dataset.outputs, tuning_splits, rms_error), verbose=1), "leave one in")
     test_models(dataset.select_features(args.num_features, score_features_loi(dataset.inputs, dataset.outputs, tuning_splits, rms_error, noise=0.1), verbose=1), "leave one in, 10% temporal noise")
+    test_models(dataset.select_features(args.num_features, score_features_loi(dataset.inputs, dataset.outputs, tuning_splits, rms_error, noise=0.5), verbose=1), "leave one in, 50% temporal noise")
 
 
     # data size * total features * cv (1 pass)
-    test_select_from_en_cv(dataset, args.num_features, tuning_splits)
-    test_rf_cv(dataset, args.num_features, tuning_splits)
+    # test_select_from_en_cv(dataset, args.num_features, tuning_splits)
+    # test_rf_cv(dataset, args.num_features, tuning_splits)
 
     # data size * total features * cv * num noise
     # test_noise_insensitivity(dataset, args.num_features, tuning_splits)
-    test_noise_insensitivity(dataset, args.num_features, tuning_splits, noise=0.03)
+    # test_noise_insensitivity(dataset, args.num_features, tuning_splits, noise=0.03)
     test_cv_noise_ensemble(dataset, args.num_features, noise_list=[0.1], noise_iter=5)
-    test_cv_noise_ensemble(dataset, args.num_features, noise_list=[0.05, 0.1, 0.5], score_function=score_features_random_forest)
-    test_cv_noise_ensemble(dataset, args.num_features, noise_list=[0.05, 0.1, 0.5], score_function=score_features_loi)
+    test_cv_noise_ensemble(dataset, args.num_features, noise_list=[0.05, 0.1, 0.25], score_function=score_features_loi, score_cv=True)
+    test_cv_noise_ensemble(dataset, args.num_features, noise_list=[0.05, 0.1, 0.25], score_function=score_features_random_forest)
 
     # data size * total features * cv * 2
     # test_cv_ensemble(dataset, args.num_features, tuning_splits)
