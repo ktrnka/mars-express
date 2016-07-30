@@ -33,6 +33,7 @@ def parse_args():
     parser.add_argument("-d", "--debug", default=False, action="store_true", help="Debug logging")
     parser.add_argument("-q", "--quieter", default=False, action="store_true", help="Don't show info logging messages")
     add_loader_arguments(parser)
+    parser.add_argument("--roll-input", default=False, action="store_true", help="Roll the inputs forward one time step")
 
     parser.add_argument("--time-steps", default=4, type=int, help="Number of time steps for recurrent/etc models")
     parser.add_argument("--analyse-feature-importance", default=False, action="store_true", help="Analyse feature importance and print them out for some models")
@@ -167,7 +168,7 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO)
 
-    dataset = load_split_data(args, data_loader=get_loader(args), split_type=args.split)
+    dataset = load_split_data(args, data_loader=get_loader(args), split_type=args.split, roll_input=args.roll_input)
 
     baseline_model = sklearn.dummy.DummyRegressor("mean")
     cross_validate(dataset, baseline_model)

@@ -17,13 +17,14 @@ import helpers.sk
 from helpers.debug import compute_input_fairness
 from helpers.general import with_num_features, with_date, _with_extra
 from helpers.sk import with_model_name, predictions_in_training_range
-from loaders import separate_output, get_loader, add_loader_arguments
+from loaders import separate_output, get_loader, add_loader_arguments, roll_inputs
 from train_test import make_nn, make_rnn, make_blr, make_rf, make_stacked_ensemble
 
 
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     add_loader_arguments(parser)
+    parser.add_argument("--roll-input", default=False, action="store_true", help="Roll the inputs forward one time step")
     parser.add_argument("--model", default="nn", help="Model to generate predictions with")
     parser.add_argument("--clip", default=None, help="Json file with saved output clip min and max values")
     parser.add_argument("training_dir", help="Dir with the training CSV files")
@@ -130,6 +131,9 @@ def predict_test_data(X_train, Y_train, args):
     loader = get_loader(args)
     test_data = loader(args.testing_dir)
     X_test, Y_test = separate_output(test_data)
+    if args.roll_input:
+        X_test= pandas.DataFrame(roll_inputs(X_test.values), index=X_test.index, columns=X_test.columns)
+
 
     compute_input_fairness(X_train.values, X_test.values, verbose=True, names=X_train.columns)
 
@@ -183,6 +187,8 @@ def main():
     train_data = loader(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
     X_train, Y_train = separate_output(train_data)
+    if args.roll_input:
+        X_train= pandas.DataFrame(roll_inputs(X_train.values), index=X_train.index, columns=X_train.columns)
 
     os.makedirs(args.output_dir)
     predict_test_data(X_train, Y_train, args)

@@ -758,8 +758,10 @@ def auto_log(data, columns):
 
     logger.info("Changed columns: %s", changed_cols)
 
+def roll_inputs(X):
+    return numpy.roll(X, -1, axis=0)
 
-def load_split_data(args, data_loader=load_data, split_type="timecv"):
+def load_split_data(args, data_loader=load_data, split_type="timecv", roll_input=False):
     """Load the data, compute cross-validation splits, scale the inputs, etc. Returns a DataSet object"""
     data = data_loader(args.training_dir, resample_interval=args.resample, filter_null_power=True)
 
@@ -782,6 +784,7 @@ def load_split_data(args, data_loader=load_data, split_type="timecv"):
     # splits = sklearn.cross_validation.LeaveOneLabelOut(data["file_number"])
 
     X, Y = separate_output(data)
+
     if args.verify:
         verify_data(X, Y, None)
         compute_cross_validation_fairness(X.values, X.columns, Y.values, Y.columns, splits)
@@ -792,6 +795,9 @@ def load_split_data(args, data_loader=load_data, split_type="timecv"):
         compute_upper_bounds(data)
 
     dataset = helpers.general.DataSet(X.values, Y.values, splits, X.columns, Y.columns, Y.index, split_map=split_map)
+    if roll_input:
+        dataset.inputs = roll_inputs(dataset.inputs)
+
     return dataset
 
 
