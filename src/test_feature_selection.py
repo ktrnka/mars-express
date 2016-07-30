@@ -152,7 +152,7 @@ def score_features_elasticnet(X, Y):
 
 
 def score_features_random_forest(X, Y):
-    model = sklearn.ensemble.RandomForestRegressor(n_estimators=500, max_features=64, max_depth=42, min_samples_split=10)
+    model = sklearn.ensemble.RandomForestRegressor(n_estimators=500, max_features=64, max_depth=42, min_samples_split=10, n_jobs=-1)
     model.fit(X, Y)
     return model.feature_importances_
 
@@ -306,8 +306,8 @@ def test_cv_ensemble(dataset, num_features, splits):
     test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Ensemble of ENCV on both CV splits")
 
 
-def test_mega_ensemble(dataset, num_features, splits, noise=0.03, noise_iter=5, scorer=score_features_elasticnet):
-    scorers = [scorer]
+def test_mega_ensemble(dataset, num_features, splits, noise=0.03, noise_iter=5, score_function=score_features_elasticnet):
+    scorers = [score_function]
 
     scores = []
     for _ in range(noise_iter):
@@ -318,10 +318,10 @@ def test_mega_ensemble(dataset, num_features, splits, noise=0.03, noise_iter=5, 
 
     joined_scores = numpy.vstack(scores)
     scores = joined_scores.mean(axis=0) - 0.05 * joined_scores.std(axis=0)
-    test_models(dataset.select_features(num_features, scores, verbose=1), "Noise*CV*model ensemble {}".format(scorer))
+    test_models(dataset.select_features(num_features, scores, verbose=1), "Noise*CV*model ensemble {}".format(score_function))
 
     diversified_scores = diversify(dataset.feature_names, scores)
-    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Noise*CV*model ensemble {}".format(scorer))
+    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Noise*CV*model ensemble {}".format(score_function))
 
 
 def test_subspace_selection(dataset, num_features, splits, prefilter=True):
@@ -494,7 +494,7 @@ def main():
     # test_noise_insensitivity(dataset, args.num_features, tuning_splits)
     test_noise_insensitivity(dataset, args.num_features, tuning_splits, noise=0.03)
     test_mega_ensemble(dataset, args.num_features, tuning_splits, noise=0.03)
-    test_mega_ensemble(dataset, args.num_features, tuning_splits, noise=0.03, scorer=score_features_random_forest)
+    test_mega_ensemble(dataset, args.num_features, tuning_splits, noise=0.03, score_function=score_features_random_forest)
 
     # data size * total features * cv * 2
     # test_cv_ensemble(dataset, args.num_features, tuning_splits)

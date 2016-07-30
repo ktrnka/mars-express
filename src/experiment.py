@@ -28,8 +28,16 @@ def parse_args():
     parser.add_argument("training_dir", help="Dir with the training CSV files or joined CSV file with the complete feature matrix")
     return parser.parse_args()
 
+def main():
+    args = parse_args()
+    logging.basicConfig(level=logging.INFO)
+    dataset = load_split_data(args, data_loader=get_loader(args), split_type=args.split)
+    dataset.split_map = None
 
-def test_mlp_ensembles(dataset):
+    rnn_params_last_ditch_effort(dataset)
+
+
+def nn_random_subspace(dataset):
     print("MLP baseline")
     model, _ = make_nn()
     cross_validate(dataset, model)
@@ -42,37 +50,6 @@ def test_mlp_ensembles(dataset):
     model, _ = make_nn()
     cross_validate(dataset, helpers.sk.MultivariateBaggingRegressor(model, n_estimators=10, max_features=0.9))
 
-
-def main():
-    args = parse_args()
-    logging.basicConfig(level=logging.INFO)
-    dataset = load_split_data(args, data_loader=get_loader(args), split_type=args.split)
-    dataset.split_map = None
-
-    test_rnn_params_last_ditch_effort(dataset)
-
-def test_features(dataset):
-    from helpers.features import rfe_slow
-
-    model = sklearn.linear_model.LinearRegression()
-    rfe_slow(dataset, model, rms_error)
-
-
-def test_ewma_output(dataset):
-    print("MLP with EWMA")
-    model, _ = make_nn()
-    model = helpers.sk.OutputTransformation(model, helpers.sk.QuickTransform.make_ewma_outputs(num_spans=1))
-    cross_validate(dataset, model)
-
-    print("MLP")
-    model, _ = make_nn()
-    cross_validate(dataset, model)
-
-def test_tree_methods(dataset):
-    import sklearn.ensemble
-
-    model = sklearn.ensemble.RandomForestRegressor(200, max_depth=30, min_samples_split=20, n_jobs=N_JOBS)
-    cross_validate(dataset, model)
 
 def test_skflow(dataset):
     import tensorflow.contrib.learn as skflow
@@ -92,7 +69,7 @@ def test_skflow(dataset):
     cross_validate(dataset, make_nn()[0])
 
 @helpers.general.Timed
-def tune_random_forest(dataset):
+def random_forest(dataset):
     model = sklearn.ensemble.RandomForestRegressor(n_estimators=500, max_features=64, max_depth=42, min_samples_split=10)
     cross_validate(dataset, model)
 
@@ -109,33 +86,8 @@ def tune_random_forest(dataset):
 
     cross_validate(dataset, wrapped_model)
 
-
-
 @helpers.general.Timed
-def tune_gradient_boosting(dataset):
-    base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=100, subsample=0.9, learning_rate=0.26, min_samples_split=20, max_depth=4, random_state=4)
-    model = helpers.sk.MultivariateRegressionWrapper(base_model)
-    cross_validate(dataset, model)
-
-    hyperparams = {
-        "learning_rate": helpers.sk.RandomizedSearchCV.uniform(0.1, 0.5),
-        "max_depth": range(3, 6),
-        "min_samples_split": range(2, 40),
-        "subsample": [0.9],
-        "max_features": range(int(0.8 * dataset.inputs.shape[1]), dataset.inputs.shape[1] + 1),
-        # "loss": ["ls", "lad", "huber", "quantile"]
-    }
-
-    # TODO: Up the number of hyperparameter samples greatly
-    wrapped_model = helpers.sk.MultivariateRegressionWrapper(sklearn.grid_search.RandomizedSearchCV(base_model, hyperparams, n_iter=10, cv=4, refit=True, n_jobs=N_JOBS, scoring=rms_error))
-
-    wrapped_model.fit(dataset.inputs.copy(), dataset.outputs.copy())
-    wrapped_model.print_best_params()
-
-    cross_validate(dataset, wrapped_model)
-
-@helpers.general.Timed
-def test_new_gradient_boosting(dataset):
+def gradient_boosting(dataset):
     base_model = sklearn.ensemble.GradientBoostingRegressor(n_estimators=100, learning_rate=0.08, min_samples_split=20, max_depth=9, max_features=90, random_state=4)
     model = helpers.sk.JoinedMultivariateRegressionWrapper(base_model)
     cross_validate(dataset, model)
@@ -166,7 +118,7 @@ def test_new_gradient_boosting(dataset):
     # cross_validate(dataset, wrapped_model)
 
 
-def test_rnn_relu(dataset):
+def rnn_relu_output(dataset):
     print("RNN with ReLU")
     model, _ = make_rnn()
     model.estimator.non_negative = True
@@ -177,7 +129,7 @@ def test_rnn_relu(dataset):
     cross_validate(dataset, model)
 
 
-def test_input_noise(dataset):
+def rnn_input_noise(dataset):
     print("RNN with half input noise 2%")
     model, _ = make_rnn()
     model.estimator.input_noise = 0.02
@@ -193,7 +145,7 @@ def test_input_noise(dataset):
     cross_validate(dataset, model)
 
 
-def test_rnn_l2(dataset):
+def rnn_L2(dataset):
     print("RNN with small L2")
     model, _ = make_rnn()
     model.estimator.l2 = 1e-6
@@ -204,7 +156,7 @@ def test_rnn_l2(dataset):
     cross_validate(dataset, model)
 
 
-def test_mlp_no_val(dataset):
+def nn_no_validation(dataset):
     print("MLP baseline")
     model, _ = make_nn()
     cross_validate(dataset, model)
@@ -215,18 +167,7 @@ def test_mlp_no_val(dataset):
     cross_validate(dataset, model)
 
 
-def test_rnn_smaller_batches(dataset):
-    print("RNN reduced batch size")
-    model, _ = make_rnn()
-    model.estimator.batch_size = 64
-    cross_validate(dataset, model)
-
-    print("RNN baseline")
-    model, _ = make_rnn()
-    cross_validate(dataset, model)
-
-
-def test_mlp_sample_weight(dataset):
+def nn_sample_weight(dataset):
     print("MLP with ReLU and sample weight")
     model, _ = make_nn(weight_samples=True)
     cross_validate(dataset, model)
@@ -236,7 +177,7 @@ def test_mlp_sample_weight(dataset):
     cross_validate(dataset, model)
 
 
-def test_resample_clipper(training_dir):
+def output_clipper_resampling(training_dir):
     unsampled_outputs = load_series(find_files(training_dir, "power")).dropna()
     unsampled_clipper = helpers.sk.OutputClippedTransform.from_data(unsampled_outputs.values)
 
@@ -249,7 +190,7 @@ def test_resample_clipper(training_dir):
         print("\tMax: unsampled {}, sampled {} ({:.1f}% lower)".format(unsampled_clipper.max[i], sampled_clipper.max[i], 100. * (unsampled_clipper.max[i] - sampled_clipper.max[i]) / unsampled_clipper.max[i]))
 
 
-def test_schedules(dataset):
+def rnn_learning_rate_schedule(dataset):
     """Try a few different learning rate schedules"""
     model, prefix = make_rnn(non_negative=True)
     # model.set_params(**{prefix + "val": 0.1})
@@ -267,7 +208,7 @@ def test_schedules(dataset):
     cross_validate(dataset, model)
 
 
-def test_rnn_no_early_stop(dataset):
+def rnn_no_early_stop(dataset):
     """Try a few different learning rate schedules"""
     model, prefix = make_rnn()
 
@@ -278,38 +219,7 @@ def test_rnn_no_early_stop(dataset):
     cross_validate(dataset, model)
 
 
-
-def test_rnn_elu(dataset):
-    model = helpers.neural.RnnRegressor(learning_rate=1e-3,
-                                        num_units=50,
-                                        time_steps=3,
-                                        batch_size=64,
-                                        num_epochs=500,
-                                        verbose=0,
-                                        input_noise=0.1,
-                                        input_dropout=0.02,
-                                        early_stopping=True,
-                                        recurrent_dropout=0.5,
-                                        dropout=0.5,
-                                        val=0.1,
-                                        assert_finite=False,
-                                        activation="elu",
-                                        pretrain=True)
-
-    print("RNN with followup ELU layer")
-    hyperparams = {
-        "hidden_layer_sizes": [(50,), (75,), (100,), (200,)],
-        "dropout": [0.25, 0.5, .75]
-    }
-
-    wrapped_model = helpers.sk.RandomizedSearchCV(model, hyperparams, n_iter=10, n_jobs=N_JOBS, scoring=rms_error,
-                                                  cv=dataset.splits, refit=False)
-
-    wrapped_model.fit(dataset.inputs, dataset.outputs)
-    wrapped_model.print_tuning_scores()
-
-
-def test_clones(dataset, n=2):
+def rnn_clones(dataset, n=2):
     print("Baseline model")
     cross_validate(dataset, make_rnn()[0])
 
@@ -318,7 +228,7 @@ def test_clones(dataset, n=2):
     cross_validate(dataset, model)
 
 
-def test_stateful_rnn(dataset):
+def rnn_stateful(dataset):
     model, _ = make_rnn()
     model.batch_size = 4
     model.time_steps = 4
@@ -335,7 +245,7 @@ def test_stateful_rnn(dataset):
     cross_validate(dataset, model)
 
 
-def test_stacking(dataset):
+def stacked_ensemble(dataset):
     # build the component models
     models = [with_val(with_scaler(sklearn.linear_model.ElasticNet(0.001), "en")),
               with_val(with_scaler(sklearn.linear_model.RidgeCV(), "ridge")),
@@ -420,7 +330,7 @@ def test_stacking(dataset):
     ensemble = helpers.sk.StackedEnsembleRegressor(models, with_non_negative(wrapped_model))
     cross_validate(dataset, ensemble)
 
-def test_rnn_params_last_ditch_effort(dataset):
+def rnn_params_last_ditch_effort(dataset):
     base_model = with_non_negative(make_rnn(time_steps=4)[0])
 
     model2 = helpers.neural.RnnRegressor(learning_rate=1e-4,
@@ -453,8 +363,7 @@ def test_rnn_params_last_ditch_effort(dataset):
         cross_validate(dataset, base_model)
 
 
-
-def test_reversed_rnn(dataset):
+def rnn_reversed(dataset):
     print("Base MLP")
     cross_validate(dataset, with_non_negative(make_nn()[0]))
 
@@ -476,7 +385,7 @@ def test_reversed_rnn(dataset):
         cross_validate(dataset, ensemble)
 
 
-def test_realistic_rnns(dataset, num_clones=2):
+def rnn_realistic(dataset, num_clones=2):
     # print("Base regular")
     # base_model = with_non_negative(make_rnn(time_steps=4))
     # cross_validate(dataset, base_model)
@@ -487,19 +396,7 @@ def test_realistic_rnns(dataset, num_clones=2):
         ensembled_model = helpers.sk.AverageClonedRegressor(base_model, num_clones)
         cross_validate(dataset, ensembled_model)
 
-
-def test_time_onestep(dataset):
-    # base estimator
-    model, _ = make_nn()
-
-    print("Baseline")
-    cross_validate(dataset, model)
-
-    time_model = helpers.sk.DeltaSumRegressor(model, num_rolls=2)
-    cross_validate(dataset, time_model)
-
-
-def test_output_augmentations(dataset):
+def output_augmentations(dataset):
     base_model, _ = make_rnn()
     cross_validate(dataset, base_model)
 
