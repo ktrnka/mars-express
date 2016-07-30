@@ -309,22 +309,21 @@ def test_cv_ensemble(dataset, num_features, splits):
     test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Ensemble of ENCV on both CV splits")
 
 
-def test_mega_ensemble(dataset, num_features, splits, noise=0.03, noise_iter=5, score_function=score_features_elasticnet):
-    scorers = [score_function]
-
+def test_cv_noise_ensemble(dataset, num_features, noise_list=[0.03], noise_iter=1, score_function=score_features_elasticnet):
+    noise_list = noise_list * noise_iter
     scores = []
-    for _ in range(noise_iter):
-        noised_data = with_noise(dataset, noise)
+
+    for noise in noise_list:
+        noised_data = with_noise(dataset, noise, temporal=True)
         for cv in dataset.split_map.values():
-            for scorer in scorers:
-                scores.append(cross_validated_select(noised_data, cv, scorer))
+            scores.append(cross_validated_select(noised_data, cv, score_function))
 
     joined_scores = numpy.vstack(scores)
     scores = joined_scores.mean(axis=0) - 0.05 * joined_scores.std(axis=0)
-    test_models(dataset.select_features(num_features, scores, verbose=1), "Noise*CV*model ensemble {}".format(score_function))
+    test_models(dataset.select_features(num_features, scores, verbose=1), "Noise*CV*model ensemble {}".format(score_function.__name__))
 
     diversified_scores = diversify(dataset.feature_names, scores)
-    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Noise*CV*model ensemble {}".format(score_function))
+    test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Noise*CV*model ensemble {}".format(score_function.__name__))
 
 
 def test_subspace_selection(dataset, num_features, splits, prefilter=True):
@@ -457,9 +456,14 @@ def test_rfe_hybrid(dataset, num_features, splits, preselect=True):
     test_models(dataset.select_features(num_features, scores, verbose=1), "RFE/LOO hybrid")
 
 
-def with_noise(dataset, noise):
-    noise_multipliers = noise * (numpy.random.rand(*dataset.inputs.shape) - 0.5) + 1
-    return helpers.general.DataSet(dataset.inputs * noise_multipliers, dataset.outputs, dataset.splits, dataset.feature_names, dataset.target_names, dataset.output_index)
+def with_noise(dataset, noise, temporal=False):
+    if temporal:
+        noised_inputs = helpers.general.add_temporal_noise(dataset.inputs, noise)
+    else:
+        noise_multipliers = noise * (numpy.random.rand(*dataset.inputs.shape) - 0.5) + 1
+        noised_inputs = dataset.inputs * noise_multipliers
+
+    return helpers.general.DataSet(noised_inputs, dataset.outputs, dataset.splits, dataset.feature_names, dataset.target_names, dataset.output_index)
 
 
 def test_noise_insensitivity(dataset, num_features, splits, noise=0.01, num_noise=3, nonparametric=False):
@@ -501,8 +505,9 @@ def main():
     # data size * total features * cv * num noise
     # test_noise_insensitivity(dataset, args.num_features, tuning_splits)
     test_noise_insensitivity(dataset, args.num_features, tuning_splits, noise=0.03)
-    test_mega_ensemble(dataset, args.num_features, tuning_splits, noise=0.03)
-    test_mega_ensemble(dataset, args.num_features, tuning_splits, noise=0.03, score_function=score_features_random_forest)
+    test_cv_noise_ensemble(dataset, args.num_features, noise_list=[0.1], noise_iter=5)
+    test_cv_noise_ensemble(dataset, args.num_features, noise_list=[0.05, 0.1, 0.5], score_function=score_features_random_forest)
+    test_cv_noise_ensemble(dataset, args.num_features, noise_list=[0.05, 0.1, 0.5], score_function=score_features_loi)
 
     # data size * total features * cv * 2
     # test_cv_ensemble(dataset, args.num_features, tuning_splits)
