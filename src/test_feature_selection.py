@@ -188,13 +188,16 @@ def score_features_loo(X, Y, splits, scorer, std_dev_weight=-.05, model_override
     return numpy.asarray(scores)
 
 
-def score_features_loi(X, Y, splits, scorer, std_dev_weight=-.05, model="linear"):
+def score_features_loi(X, Y, splits, scorer, std_dev_weight=-.05, model="linear", noise=None):
     if model == "linear":
         model = with_scaler(sklearn.linear_model.Ridge(), "ridge")
     elif model == "rnn":
         model = with_scaler(with_non_negative(make_rnn()[0]), "rnn")
     else:
         raise ValueError("Unsupported model for score_features_loi: {}".format(model))
+
+    if noise:
+        X = helpers.general.add_temporal_noise(X, noise)
 
     scores = [0 for _ in range(X.shape[1])]
     for i in range(X.shape[1]):
@@ -485,6 +488,11 @@ def main():
     test_models(dataset, "baseline", with_nn=False, with_rnn=False)
 
     tuning_splits = dataset.split_map["alexcv"]
+
+    # top priority = LOI
+    test_models(dataset.select_features(args.num_features, score_features_loi(dataset.inputs, dataset.outputs, tuning_splits, rms_error), verbose=1), "leave one in")
+    test_models(dataset.select_features(args.num_features, score_features_loi(dataset.inputs, dataset.outputs, tuning_splits, rms_error, noise=0.1), verbose=1), "leave one in, 10% temporal noise")
+
 
     # data size * total features * cv (1 pass)
     test_select_from_en_cv(dataset, args.num_features, tuning_splits)
