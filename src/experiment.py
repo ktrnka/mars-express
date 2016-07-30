@@ -93,7 +93,7 @@ def test_skflow(dataset):
 
 @helpers.general.Timed
 def tune_random_forest(dataset):
-    model = sklearn.ensemble.RandomForestRegressor(n_estimators=500)
+    model = sklearn.ensemble.RandomForestRegressor(n_estimators=500, max_features=64, max_depth=42, min_samples_split=10)
     cross_validate(dataset, model)
 
     hyperparams = {
