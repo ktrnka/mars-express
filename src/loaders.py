@@ -10,7 +10,7 @@ import sklearn
 import helpers.general
 import helpers.sk
 from helpers.debug import verify_data, compute_cross_validation_fairness
-from helpers.features import add_lag_feature, get_event_series, roll, add_transformation_feature, TimeRange
+from helpers.features import add_roll, get_event_series, roll, add_transform, TimeRange
 import fixed_features
 
 
@@ -79,23 +79,23 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     one_way_latency = get_communication_latency(longterm_data.LT_earthmars_km)
 
     for col in longterm_data.columns:
-        add_lag_feature(longterm_data, col, 24, "1d")
-        add_lag_feature(longterm_data, col, 4 * 24, "4d", min_periods=24)
-        add_lag_feature(longterm_data, col, -4 * 24, "next4d", min_periods=24)
-        add_lag_feature(longterm_data, col, 16 * 24, "16d", min_periods=24)
-        add_lag_feature(longterm_data, col, -16 * 24, "next16d", min_periods=24)
-        add_lag_feature(longterm_data, col, -64 * 24, "next64d", min_periods=24)
+        add_roll(longterm_data, col, 24, "1d")
+        add_roll(longterm_data, col, 4 * 24, "4d", min_periods=24)
+        add_roll(longterm_data, col, -4 * 24, "next4d", min_periods=24)
+        add_roll(longterm_data, col, 16 * 24, "16d", min_periods=24)
+        add_roll(longterm_data, col, -16 * 24, "next16d", min_periods=24)
+        add_roll(longterm_data, col, -64 * 24, "next64d", min_periods=24)
 
     ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
 
     event_sampled_df["FTL_flagcomms"] = get_event_series(event_sampling_index,
                                                          get_ftl_periods(ftl_data[ftl_data.flagcomms]))
-    add_lag_feature(event_sampled_df, "FTL_flagcomms", 12, "1h")
-    add_lag_feature(event_sampled_df, "FTL_flagcomms", -12, "next1h")
-    add_lag_feature(event_sampled_df, "FTL_flagcomms", 2 * 12, "2h")
-    add_lag_feature(event_sampled_df, "FTL_flagcomms", 8 * 12, "8h")
-    add_lag_feature(event_sampled_df, "FTL_flagcomms", -8 * 12, "next8h")
+    add_roll(event_sampled_df, "FTL_flagcomms", 12, "1h")
+    add_roll(event_sampled_df, "FTL_flagcomms", -12, "next1h")
+    add_roll(event_sampled_df, "FTL_flagcomms", 2 * 12, "2h")
+    add_roll(event_sampled_df, "FTL_flagcomms", 8 * 12, "8h")
+    add_roll(event_sampled_df, "FTL_flagcomms", -8 * 12, "next8h")
     event_sampled_df.drop("FTL_flagcomms", axis=1, inplace=True)
 
     # select columns or take preselected ones
@@ -104,14 +104,14 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index,
                                                        get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
 
-        add_lag_feature(event_sampled_df, dest_name, 12, "1h")
-        add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
-        add_lag_feature(event_sampled_df, dest_name, 4 * 12, "4h")
-        add_lag_feature(event_sampled_df, dest_name, 16 * 12, "16h")
-        add_lag_feature(event_sampled_df, dest_name, 36 * 12, "36h")
-        add_lag_feature(event_sampled_df, dest_name, 4 * 24 * 12, "4d")
-        add_lag_feature(event_sampled_df, dest_name, -4 * 24 * 12, "next4d")
-        add_lag_feature(event_sampled_df, dest_name, -4 * 12, "next4h")
+        add_roll(event_sampled_df, dest_name, 12, "1h")
+        add_roll(event_sampled_df, dest_name, -12, "next1h")
+        add_roll(event_sampled_df, dest_name, 4 * 12, "4h")
+        add_roll(event_sampled_df, dest_name, 16 * 12, "16h")
+        add_roll(event_sampled_df, dest_name, 36 * 12, "36h")
+        add_roll(event_sampled_df, dest_name, 4 * 24 * 12, "4d")
+        add_roll(event_sampled_df, dest_name, -4 * 24 * 12, "next4d")
+        add_roll(event_sampled_df, dest_name, -4 * 12, "next4h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     ### EVTF ###
@@ -121,11 +121,11 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         dest_name = "EVTF_IN_" + event_name
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
 
-        add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
-        add_lag_feature(event_sampled_df, dest_name, 12, "1h")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 8, "8h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 8, "next8h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 16, "next16h")
+        add_roll(event_sampled_df, dest_name, -12, "next1h")
+        add_roll(event_sampled_df, dest_name, 12, "1h")
+        add_roll(event_sampled_df, dest_name, 12 * 8, "8h")
+        add_roll(event_sampled_df, dest_name, -12 * 8, "next8h")
+        add_roll(event_sampled_df, dest_name, -12 * 16, "next16h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
         # TODO: merge MRB 1600 into this section
@@ -143,11 +143,11 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     event_data = roll(event_data, -12, "sum").reindex(data.index, method="nearest")
 
     event_data["EVTF_altitude"] = altitude_series
-    add_lag_feature(event_data, "EVTF_altitude", 8, "8h")
-    add_lag_feature(event_data, "EVTF_altitude", -8, "next8h")
-    add_lag_feature(event_data, "EVTF_event_counts", 2, "2h")
-    add_lag_feature(event_data, "EVTF_event_counts", 16, "16h")
-    add_lag_feature(event_data, "EVTF_event_counts", -16, "next16h")
+    add_roll(event_data, "EVTF_altitude", 8, "8h")
+    add_roll(event_data, "EVTF_altitude", -8, "next8h")
+    add_roll(event_data, "EVTF_event_counts", 2, "2h")
+    add_roll(event_data, "EVTF_event_counts", 16, "16h")
+    add_roll(event_data, "EVTF_event_counts", -16, "next16h")
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
@@ -162,10 +162,10 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys],
                                                          event_sampled_df.index)
 
-        add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 12, "12h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 12, "next12h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
+        add_roll(event_sampled_df, dest_name, 12 * 4, "4h")
+        add_roll(event_sampled_df, dest_name, 12 * 12, "12h")
+        add_roll(event_sampled_df, dest_name, -12 * 12, "next12h")
+        add_roll(event_sampled_df, dest_name, -12 * 4, "next4h")
 
         dest_name = "DMOP_TIME_SINCE_{}".format(subsys)
         event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys],
@@ -180,11 +180,11 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys],
                                                          event_sampled_df.index)
 
-        add_lag_feature(event_sampled_df, dest_name, 12 * 4, "4h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 4, "next4h")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 16, "16h")
-        add_lag_feature(event_sampled_df, dest_name, -12 * 16, "next16h")
-        add_lag_feature(event_sampled_df, dest_name, 12 * 24 * 4, "4d")
+        add_roll(event_sampled_df, dest_name, 12 * 4, "4h")
+        add_roll(event_sampled_df, dest_name, -12 * 4, "next4h")
+        add_roll(event_sampled_df, dest_name, 12 * 16, "16h")
+        add_roll(event_sampled_df, dest_name, -12 * 16, "next16h")
+        add_roll(event_sampled_df, dest_name, 12 * 24 * 4, "4d")
 
         dest_name = "DMOP_TIME_SINCE_{}".format(subsys)
         event_sampled_df[dest_name] = time_since_last_event(dmop_subsystems[dmop_subsystems == subsys],
@@ -198,10 +198,10 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     dmop_data = dmop_data.resample("5Min").count()
     dmop_data = roll(dmop_data, -12, "sum").reindex(data.index, method="nearest")
 
-    add_lag_feature(dmop_data, "DMOP_event_counts", 4, "4h")
-    add_lag_feature(dmop_data, "DMOP_event_counts", -4, "next4h")
-    add_lag_feature(dmop_data, "DMOP_event_counts", 16, "16h")
-    add_lag_feature(dmop_data, "DMOP_event_counts", -16, "next16h")
+    add_roll(dmop_data, "DMOP_event_counts", 4, "4h")
+    add_roll(dmop_data, "DMOP_event_counts", -4, "next4h")
+    add_roll(dmop_data, "DMOP_event_counts", 16, "16h")
+    add_roll(dmop_data, "DMOP_event_counts", -16, "next16h")
 
     ### SAAF ###
     saaf_data = load_series(find_files(data_dir, "saaf"))
@@ -216,24 +216,24 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     # chop each one into quartiles and make indicators for the quartiles
     saaf_quartiles = compute_saaf_quartiles(saaf_data, saaf_periods, feature_names=selected_features)
 
-    add_lag_feature(saaf_data, "SAAF_interval", saaf_periods * 4, "4h", drop=True)
+    add_roll(saaf_data, "SAAF_interval", saaf_periods * 4, "4h", drop=True)
 
     saaf_quartile_df = pandas.concat(saaf_quartiles, axis=1)
 
     for col in saaf_quartile_df.columns:
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * -2, "next2h")
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * 4, "4h")
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * 12, "12h")
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * 48, "48h")
-        add_lag_feature(saaf_quartile_df, col, saaf_periods * -48, "next48h")
+        add_roll(saaf_quartile_df, col, saaf_periods * -2, "next2h")
+        add_roll(saaf_quartile_df, col, saaf_periods * 4, "4h")
+        add_roll(saaf_quartile_df, col, saaf_periods * 12, "12h")
+        add_roll(saaf_quartile_df, col, saaf_periods * 48, "48h")
+        add_roll(saaf_quartile_df, col, saaf_periods * -48, "next48h")
 
     saaf_quartile_df = saaf_quartile_df.reindex(data.index, method="nearest")
 
     for col in ["sx", "sy", "sz", "sa"]:
         # next hour, prev hour, prev 4, prev 16, next 4, next 16, and 30 day averages
         for interval in [-1, 1, -4, 4, -16, 16, -24 * 30, 24 * 30, -24 * 60, 24 * 60]:
-            add_lag_feature(saaf_data, col, saaf_periods * interval, make_label(interval),
-                            min_periods=saaf_periods * min(abs(interval), 24))
+            add_roll(saaf_data, col, saaf_periods * interval, make_label(interval),
+                     min_periods=saaf_periods * min(abs(interval), 24))
 
     # SAAF rolling stddev, took top 2 from ElasticNet
     for num_days in [1, 8]:
@@ -259,8 +259,8 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
     data["days_in_space"] = (data.index - pandas.datetime(year=2003, month=6, day=2)).days
 
     if derived_features:
-        add_transformation_feature(data, "DMOP_event_counts", "log", drop=True)
-        add_transformation_feature(data, "LT_occultationduration_min", "log", drop=True)
+        add_transform(data, "DMOP_event_counts", "log", drop=True)
+        add_transform(data, "LT_occultationduration_min", "log", drop=True)
 
         # these features have clipping issues
         for col in [c for c in data.columns if "TIME_SINCE" in c]:
@@ -272,11 +272,11 @@ def load_inflated_data(data_dir, resample_interval=None, filter_null_power=False
         # log of all the bare sa and sy feature cause they have outlier issues
         for col in [c for c in data.columns if "sa_rolling" in c or "sy_rolling" in c]:
             if col.endswith("1h"):
-                add_transformation_feature(data, col, "log", drop=True)
+                add_transform(data, col, "log", drop=True)
 
         # # various crazy rolling features
-        add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h", 1600, "1600")
-        add_lag_feature(data, "FTL_NADIR_rolling_1h", 400, "400")
+        add_roll(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_1h", 1600, "1600")
+        add_roll(data, "FTL_NADIR_rolling_1h", 400, "400")
 
     logger.info("DataFrame shape %s", data.shape)
 
@@ -310,19 +310,19 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     one_way_latency = get_communication_latency(longterm_data.earthmars_km)
 
     # time-lagged version
-    add_lag_feature(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)
-    add_lag_feature(longterm_data, "eclipseduration_min", 5 * 24, "5d", data_type=numpy.int64)
-    add_lag_feature(longterm_data, "eclipseduration_min", 64 * 24, "64d")
-    add_lag_feature(longterm_data, "sunmars_km", 24, "1d", drop=True)
-    add_lag_feature(longterm_data, "sunmarsearthangle_deg", 24 * 64, "64d")
+    add_roll(longterm_data, "eclipseduration_min", 2 * 24, "2d", data_type=numpy.int64)
+    add_roll(longterm_data, "eclipseduration_min", 5 * 24, "5d", data_type=numpy.int64)
+    add_roll(longterm_data, "eclipseduration_min", 64 * 24, "64d")
+    add_roll(longterm_data, "sunmars_km", 24, "1d", drop=True)
+    add_roll(longterm_data, "sunmarsearthangle_deg", 24 * 64, "64d")
 
     ### FTL ###
     ftl_data = load_series(find_files(data_dir, "ftl"), date_cols=["utb_ms", "ute_ms"])
 
     event_sampled_df["flagcomms"] = get_event_series(event_sampling_index,
                                                      get_ftl_periods(ftl_data[ftl_data.flagcomms]))
-    add_lag_feature(event_sampled_df, "flagcomms", -12, "next1h")
-    add_lag_feature(event_sampled_df, "flagcomms", 24, "2h")
+    add_roll(event_sampled_df, "flagcomms", -12, "next1h")
+    add_roll(event_sampled_df, "flagcomms", 24, "2h")
     event_sampled_df.drop("flagcomms", axis=1, inplace=True)
 
     # select columns or take preselected ones
@@ -332,11 +332,11 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index,
                                                        get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))
 
-        add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
-        add_lag_feature(event_sampled_df, dest_name, 24, "2h")
+        add_roll(event_sampled_df, dest_name, -12, "next1h")
+        add_roll(event_sampled_df, dest_name, 24, "2h")
 
         if ftl_type == "MAINTENANCE" or ftl_type == "EARTH" or ftl_type == "SLEW":
-            add_lag_feature(event_sampled_df, dest_name, -2 * 12, make_label(-2))
+            add_roll(event_sampled_df, dest_name, -2 * 12, make_label(-2))
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     ### EVTF ###
@@ -346,11 +346,11 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         dest_name = "EVTF_IN_" + event_name
         event_sampled_df[dest_name] = get_event_series(event_sampling_index, get_evtf_ranges(event_data, event_name))
 
-        add_lag_feature(event_sampled_df, dest_name, -12, "next1h")
+        add_roll(event_sampled_df, dest_name, -12, "next1h")
 
         if event_name == "MAR_UMBRA":
-            add_lag_feature(event_sampled_df, dest_name, 8 * 12, "8h")
-            add_lag_feature(event_sampled_df, dest_name, -8 * 12, "next8h")
+            add_roll(event_sampled_df, dest_name, 8 * 12, "8h")
+            add_roll(event_sampled_df, dest_name, -8 * 12, "next8h")
         event_sampled_df.drop(dest_name, axis=1, inplace=True)
 
     # event_sampled_df["EVTF_EARTH_LOS"] = get_earth_los(event_data, event_sampled_df.index).rolling(12, min_periods=0).mean()
@@ -370,8 +370,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     event_data = roll(event_data, -12, "sum").reindex(data.index, method="nearest")
     event_data["EVTF_altitude"] = altitude_series
 
-    add_lag_feature(event_data, "EVTF_event_counts", 2, "2h", data_type=numpy.int64)
-    add_lag_feature(event_data, "EVTF_event_counts", 5, "5h", data_type=numpy.int64)
+    add_roll(event_data, "EVTF_event_counts", 2, "2h", data_type=numpy.int64)
+    add_roll(event_data, "EVTF_event_counts", 5, "5h", data_type=numpy.int64)
 
     ### DMOP ###
     dmop_data = load_series(find_files(data_dir, "dmop"))
@@ -398,7 +398,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     for subsys, windows in subsystem_windows.items():
         dest_name = "DMOP_{}_event_count".format(subsys)
         for hours in windows:
-            add_lag_feature(event_sampled_df, dest_name, hours * 12, make_label(hours))
+            add_roll(event_sampled_df, dest_name, hours * 12, make_label(hours))
 
     subsystem_windows = {
         "OOO_F77A0": 4,
@@ -418,7 +418,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
         dest_name = "DMOP_{}_event_count".format(subsys)
         event_sampled_df[dest_name] = hourly_event_count(dmop_subsystems[dmop_subsystems == subsys],
                                                          event_sampled_df.index)
-        add_lag_feature(event_sampled_df, dest_name, hours * 12, make_label(hours), drop=True)
+        add_roll(event_sampled_df, dest_name, hours * 12, make_label(hours), drop=True)
 
     dmop_data.drop(["subsystem"], axis=1, inplace=True)
     dmop_data["DMOP_event_counts"] = 1
@@ -426,8 +426,8 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     dmop_data = dmop_data.resample("5Min").count()
     dmop_data = roll(dmop_data, -12, "sum").reindex(data.index, method="nearest")
 
-    add_lag_feature(dmop_data, "DMOP_event_counts", 2, "2h", data_type=numpy.int64)
-    add_lag_feature(dmop_data, "DMOP_event_counts", 5, "5h", data_type=numpy.int64)
+    add_roll(dmop_data, "DMOP_event_counts", 2, "2h", data_type=numpy.int64)
+    add_roll(dmop_data, "DMOP_event_counts", 5, "5h", data_type=numpy.int64)
 
     ### SAAF ###
     saaf_data = load_series(find_files(data_dir, "saaf"))
@@ -480,20 +480,20 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     if derived_features:
         for col in [c for c in data.columns if "EVTF_IN_MRB" in c]:
-            add_transformation_feature(data, col, "gradient")
-        add_transformation_feature(data, "FTL_EARTH_rolling_next1h", "gradient")
-        add_transformation_feature(data, "DMOP_event_counts", "log", drop=True)
-        add_transformation_feature(data, "DMOP_event_counts_rolling_2h", "gradient", drop=True)
-        add_transformation_feature(data, "occultationduration_min", "log", drop=True)
+            add_transform(data, col, "gradient")
+        add_transform(data, "FTL_EARTH_rolling_next1h", "gradient")
+        add_transform(data, "DMOP_event_counts", "log", drop=True)
+        add_transform(data, "DMOP_event_counts_rolling_2h", "gradient", drop=True)
+        add_transform(data, "occultationduration_min", "log", drop=True)
 
-        add_transformation_feature(data, "sa", "log", drop=True)
-        add_transformation_feature(data, "sy", "log", drop=True)
+        add_transform(data, "sa", "log", drop=True)
+        add_transform(data, "sy", "log", drop=True)
 
         # # various crazy rolling features
-        add_lag_feature(data, "EVTF_IN_MAR_UMBRA_rolling_next1h", 50, "50")
-        add_lag_feature(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_next1h", 1600, "1600")
-        add_lag_feature(data, "EVTF_event_counts_rolling_5h", 50, "50")
-        add_lag_feature(data, "FTL_NADIR_rolling_next1h", 400, "400")
+        add_roll(data, "EVTF_IN_MAR_UMBRA_rolling_next1h", 50, "50")
+        add_roll(data, "EVTF_IN_MRB_/_RANGE_06000KM_rolling_next1h", 1600, "1600")
+        add_roll(data, "EVTF_event_counts_rolling_5h", 50, "50")
+        add_roll(data, "FTL_NADIR_rolling_next1h", 400, "400")
 
     logger.info("DataFrame shape %s", data.shape)
 
@@ -760,7 +760,7 @@ def auto_log(data, columns):
     for column, deviation in zip(columns, column_deviants):
         if deviation > 0.01:
             logger.info("Auto log on %s with %.1f%% deviant values", column, 100. * deviation)
-            add_transformation_feature(data, column, "log", drop=True)
+            add_transform(data, column, "log", drop=True)
             changed_cols.append(column)
 
     logger.info("Changed columns: %s", changed_cols)
