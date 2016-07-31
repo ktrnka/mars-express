@@ -92,7 +92,7 @@ def ensemble_feature_scores(*scores):
     return numpy.vstack(scores).prod(axis=0)
 
 
-def test_models(dataset, name, with_nn=True, with_rnn=False):
+def test_models(dataset, name, with_nn=True, with_rnn=True):
     print("Evaluating {}, {} features".format(name, dataset.inputs.shape[1]))
     cross_validate(dataset, with_scaler(sklearn.linear_model.ElasticNet(0.001), "en"))
 
@@ -152,7 +152,7 @@ def score_features_elasticnet(X, Y):
 
 
 def score_features_random_forest(X, Y):
-    model = sklearn.ensemble.RandomForestRegressor(n_estimators=500, max_features=64, max_depth=42, min_samples_split=10, n_jobs=-1)
+    model = sklearn.ensemble.RandomForestRegressor(n_estimators=100, max_features=64, max_depth=42, min_samples_split=10, n_jobs=-1)
     model.fit(X, Y)
     return model.feature_importances_
 
@@ -205,6 +205,39 @@ def score_features_loi(X, Y, splits, scorer, std_dev_weight=-.05, model="linear"
         scores[i] = cv_scores.mean() + std_dev_weight * cv_scores.std()
 
     return numpy.asarray(scores)
+
+
+def deform_feature(X, i, adjustment=0.1):
+    X_def = X.copy()
+    X_def[:, i] *= 1 + adjustment
+    return X_def
+
+
+def score_features_deform(X, Y, splits, std_dev_weight=-.05, model_type="linear"):
+    if model_type == "linear":
+        model = with_scaler(sklearn.linear_model.ElasticNet(0.001), "en")
+    elif model_type == "nn":
+        model = with_scaler(with_non_negative(make_nn()[0]), "nn")
+    else:
+        raise ValueError("Unsupported model for score_features_loi: {}".format(model_type))
+
+    all_degradation_scores = []
+    for train, test in splits:
+        model.fit(X[train], Y[train])
+
+        baseline_score = rms_error(model, X[test], Y[test])
+        deform_scores_increased = [baseline_score - rms_error(model, deform_feature(X[test], i, adjustment=0.1), Y[test]) for i in range(X.shape[1])]
+        deform_scores_decreased = [baseline_score - rms_error(model, deform_feature(X[test], i, adjustment=-0.1), Y[test]) for i in range(X.shape[1])]
+
+        all_degradation_scores.append(deform_scores_increased)
+        all_degradation_scores.append(deform_scores_decreased)
+
+    all_degradation_scores = numpy.asarray(all_degradation_scores)
+    print("Degradation scores, should be negative", all_degradation_scores)
+    feature_scores = all_degradation_scores.mean(axis=0) + std_dev_weight * all_degradation_scores.std(axis=0)
+    print("Merged", feature_scores)
+
+    return feature_scores
 
 def inverse_rank_order(weights):
     return 0.9 ** scipy.stats.rankdata(weights)
@@ -492,49 +525,24 @@ def main():
 
     print("Baselines")
     cross_validate(dataset, sklearn.dummy.DummyRegressor())
-    test_models(dataset, "baseline", with_nn=False, with_rnn=False)
+    test_models(dataset, "baseline", with_nn=True, with_rnn=False)
 
     tuning_splits = dataset.split_map["alexcv"]
+
+    # scoring with deform
+    test_models(dataset.select_features(args.num_features, score_features_deform(dataset.inputs, dataset.outputs, tuning_splits), verbose=1), "deformed EN")
+    test_models(dataset.select_features(args.num_features, score_features_deform(dataset.inputs, dataset.outputs, tuning_splits, model_type="nn"), verbose=1), "deformed NN")
 
     # top priority = LOI
     test_models(dataset.select_features(args.num_features, score_features_loi(dataset.inputs, dataset.outputs, tuning_splits, rms_error), verbose=1), "leave one in")
     test_models(dataset.select_features(args.num_features, score_features_loi(dataset.inputs, dataset.outputs, tuning_splits, rms_error, noise=0.1), verbose=1), "leave one in, 10% temporal noise")
     test_models(dataset.select_features(args.num_features, score_features_loi(dataset.inputs, dataset.outputs, tuning_splits, rms_error, noise=0.5), verbose=1), "leave one in, 50% temporal noise")
 
-
-    # data size * total features * cv (1 pass)
-    # test_select_from_en_cv(dataset, args.num_features, tuning_splits)
-    # test_rf_cv(dataset, args.num_features, tuning_splits)
-
-    # data size * total features * cv * num noise
-    # test_noise_insensitivity(dataset, args.num_features, tuning_splits)
-    # test_noise_insensitivity(dataset, args.num_features, tuning_splits, noise=0.03)
+    # various ensembles
     test_cv_noise_ensemble(dataset, args.num_features, noise_list=[0.1], noise_iter=5)
     test_cv_noise_ensemble(dataset, args.num_features, noise_list=[0.05, 0.1, 0.25], score_function=score_features_loi, score_cv=True)
     test_cv_noise_ensemble(dataset, args.num_features, noise_list=[0.05, 0.1, 0.25], score_function=score_features_random_forest)
 
-    # data size * total features * cv * 2
-    # test_cv_ensemble(dataset, args.num_features, tuning_splits)
-
-    # data size * total features * 1
-    # test_select_from_en(dataset, args.num_features)
-
-    # reduced features * data size * cv * iter
-    test_subspace_simple(dataset, args.num_features, tuning_splits, num_iter=150)
-    # test_subspace_mlp(dataset, args.num_features, tuning_splits, num_iter=150)
-
-    # loi = 1 * total features * data size * cv
-    # loo = total features * total - 1 * data size * cv
-    test_loo_loi(dataset, args.num_features, tuning_splits)
-
-    # loi + en-cv
-    test_simple_ensemble(dataset, args.num_features, tuning_splits)
-    # test_simple_ensemble(dataset, args.num_features, tuning_splits, loi_model="rnn")
-
-    # super slow methods
-    # test_rfecv_en(dataset, args.num_features, tuning_splits)
-    # test_subspace_selection(dataset, args.num_features, tuning_splits)
-    # test_rfe_hybrid(dataset, args.num_features, tuning_splits, preselect=False)
 
 if __name__ == "__main__":
     sys.exit(main())
