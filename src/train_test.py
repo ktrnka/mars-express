@@ -43,17 +43,17 @@ def parse_args():
     return parser.parse_args()
 
 
-def make_nn(history_file=None, **kwargs):
+def make_nn(units=200, lr=0.004, history_file=None, **kwargs):
     """Make a plain neural network with reasonable default args"""
 
     model = helpers.neural.NnRegressor(num_epochs=500,
                                        batch_size=256,
-                                       learning_rate=0.004,
+                                       learning_rate=lr,
                                        dropout=0.5,
                                        activation="elu",
                                        input_noise=0.05,
                                        input_dropout=0.02,
-                                       hidden_units=200,
+                                       hidden_units=units,
                                        early_stopping=True,
                                        l2=0.0001,
                                        val=.1,
@@ -96,9 +96,9 @@ def experiment_neural_network(dataset, tune_params=True):
         wrapped_model.print_tuning_scores()
 
 
-def make_rnn(history_file=None, learning_rate=7e-4, time_steps=4, non_negative=False, early_stopping=True, reverse=False):
+def make_rnn(history_file=None, lr=7e-4, time_steps=4, non_negative=False, early_stopping=True, reverse=False, rdrop=.65):
     """Make a recurrent neural network with reasonable default args for this task"""
-    model = helpers.neural.RnnRegressor(learning_rate=learning_rate,
+    model = helpers.neural.RnnRegressor(learning_rate=lr,
                                         num_units=50,
                                         time_steps=time_steps,
                                         batch_size=64,
@@ -107,7 +107,7 @@ def make_rnn(history_file=None, learning_rate=7e-4, time_steps=4, non_negative=F
                                         input_noise=0.05,
                                         input_dropout=0.02,
                                         early_stopping=early_stopping,
-                                        recurrent_dropout=0.65,
+                                        recurrent_dropout=rdrop,
                                         dropout=0.5,
                                         val=0.1,
                                         assert_finite=False,
@@ -184,11 +184,14 @@ def main():
 
 
 def make_stacked_ensemble():
-    models = [with_non_negative(make_rnn(time_steps=4)[0]),
-              with_non_negative(make_rnn(time_steps=8)[0]),
-              with_non_negative(make_rnn(time_steps=12)[0]),
-              helpers.sk.with_val(with_non_negative(make_rnn(time_steps=4, reverse=True)[0])),
-              make_nn()[0]]
+    models = [sklearn.ensemble.RandomForestRegressor(n_estimators=500, max_features=64, max_depth=42, min_samples_split=10, n_jobs=-1),
+              make_nn()[0],
+              make_nn(units=800, lr=2.5e-4)[0],
+              with_non_negative(make_rnn(time_steps=4)[0]),
+              with_non_negative(make_rnn(time_steps=4)[0]),
+              with_non_negative(make_rnn(time_steps=4)[0]),
+              with_non_negative(make_rnn(time_steps=8, lr=5e-4, rdrop=.44)[0])
+              ]
 
     hyperparams = {
         "fit_intercept": [True, False],

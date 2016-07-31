@@ -11,6 +11,8 @@ import helpers.general
 import helpers.sk
 from helpers.debug import verify_data, compute_cross_validation_fairness
 from helpers.features import add_lag_feature, get_event_series, roll, add_transformation_feature, TimeRange
+import fixed_features
+
 
 DMOP_PATTERN = re.compile(r"^DMOP_(?:COUNT|TIME_SINCE)_([A-Z0-9_]+)(?:_[a-z].*)?$")
 
@@ -495,6 +497,11 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
 
     logger.info("DataFrame shape %s", data.shape)
 
+    if selected_features:
+        # The feature matrix at this stage needs the file number potentially for CV and the output columns
+        data = data[selected_features + ["file_number"] + [col for col in data.columns if is_output(col)]]
+        logger.info("Selecting features reduces to shape %s", data.shape)
+
     data = data[filter_bad_features(data.columns)]
     logger.info("Removing bad features reduces to shape %s", data.shape)
 
@@ -833,24 +840,26 @@ def filter_bad_features(feature_names):
     blacklist = set("MMM_F05A0 AAA_F20E1 TTT_F310B TTT_F310A VVV_03B0 SXX SSS_F53A0 XXX SSS_F53A0 PSF_38A1 PSF_30C2 MMM_F01A0 AAA_F59A1 PSF_28A1".split())
     return [feature for feature in feature_names if not any(bad_feat in feature for bad_feat in blacklist)]
 
+
 def select_features(feature_weights, num_features):
     return filter_bad_features([feature_name for feature_name, _ in feature_weights])[:num_features]
 
 
 def get_loader(args):
-    import fixed_features
-
     features = None
-    if args.feature_id == 100:
+
+    if args.feature_id == "100":
         return load_data
-    elif args.feature_id == 30:
-        features = select_features(fixed_features.weights_70_noisy_ensemble, 30)
-    elif args.feature_id == 50:
-        features = select_features(fixed_features.weights_70_noisy_ensemble, 50)
-    elif args.feature_id == 70:
+    elif args.feature_id == "100_loi_75":
+        def load_data_wrapper(data_dir, resample_interval=None, filter_null_power=False):
+            return load_data(data_dir, resample_interval=resample_interval, filter_null_power=filter_null_power, derived_features=True, selected_features=features)
+        return load_data_wrapper
+    elif args.feature_id == "70":
         features = select_features(fixed_features.weights_70_noisy_ensemble, 70)
-    elif args.feature_id == 120:
+    elif args.feature_id == "120":
         features = select_features(fixed_features.weights_120_noisy_ensemble, 120)
+    elif args.feature_id == "120_defnn_75":
+        features = select_features(fixed_features.weights_120_deformed_nn, 75)
     elif args.feature_id == -1:
         features = None
     else:
@@ -864,7 +873,7 @@ def get_loader(args):
 
 def add_loader_arguments(argument_parser):
     """Add assorted command-line options that are used in loading files, splitting, and so on."""
-    argument_parser.add_argument("--feature-id", default=100, type=int, help="Identifier of the feature set to use. For now it's 30, 50, 70, 100, or 120")
+    argument_parser.add_argument("--feature-id", default="100", choices=["100", "70", "120", "120_defnn_75", "100_loi_75"], help="Identifier of the feature set to use. For now it's 30, 50, 70, 100, or 120")
     argument_parser.add_argument("--verify", default=False, action="store_true", help="Run checks for outliers before training")
     argument_parser.add_argument("--resample", default="1H", help="Time interval to resample the training data. Only change this for code checks.")
     argument_parser.add_argument("--extra-analysis", default=False, action="store_true", help="Extra analysis on the data")

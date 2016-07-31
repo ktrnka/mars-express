@@ -92,7 +92,7 @@ def ensemble_feature_scores(*scores):
     return numpy.vstack(scores).prod(axis=0)
 
 
-def test_models(dataset, name, with_nn=True, with_rnn=True):
+def test_models(dataset, name, with_nn=True, with_rnn=False):
     print("Evaluating {}, {} features".format(name, dataset.inputs.shape[1]))
     cross_validate(dataset, with_scaler(sklearn.linear_model.ElasticNet(0.001), "en"))
 
@@ -226,16 +226,14 @@ def score_features_deform(X, Y, splits, std_dev_weight=-.05, model_type="linear"
         model.fit(X[train], Y[train])
 
         baseline_score = rms_error(model, X[test], Y[test])
-        deform_scores_increased = [baseline_score - rms_error(model, deform_feature(X[test], i, adjustment=0.1), Y[test]) for i in range(X.shape[1])]
-        deform_scores_decreased = [baseline_score - rms_error(model, deform_feature(X[test], i, adjustment=-0.1), Y[test]) for i in range(X.shape[1])]
+        deform_scores_increased = numpy.asarray([rms_error(model, deform_feature(X[test], i, adjustment=0.1), Y[test]) for i in range(X.shape[1])])
+        deform_scores_decreased = numpy.asarray([rms_error(model, deform_feature(X[test], i, adjustment=-0.1), Y[test]) for i in range(X.shape[1])])
 
-        all_degradation_scores.append(deform_scores_increased)
-        all_degradation_scores.append(deform_scores_decreased)
+        all_degradation_scores.append(baseline_score - deform_scores_increased)
+        all_degradation_scores.append(baseline_score - deform_scores_decreased)
 
     all_degradation_scores = numpy.asarray(all_degradation_scores)
-    print("Degradation scores, should be negative", all_degradation_scores)
     feature_scores = all_degradation_scores.mean(axis=0) + std_dev_weight * all_degradation_scores.std(axis=0)
-    print("Merged", feature_scores)
 
     return feature_scores
 
