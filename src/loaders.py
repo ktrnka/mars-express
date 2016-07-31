@@ -842,7 +842,11 @@ def filter_bad_features(feature_names):
 
 
 def select_features(feature_weights, num_features):
-    return filter_bad_features([feature_name for feature_name, _ in feature_weights])[:num_features]
+    features = filter_bad_features([feature_name for feature_name, _ in feature_weights])[:num_features]
+    for feature in "days_in_space EVTF_IN_MSL_/_RANGE_06000KM_rolling_1h DMOP_event_counts_log SAAF_stddev_1d SAAF_interval_rolling_4h".split():
+        if feature not in features:
+            features.append(feature)
+    return features
 
 
 def get_loader(args):
@@ -851,6 +855,7 @@ def get_loader(args):
     if args.feature_id == "100":
         return load_data
     elif args.feature_id == "100_loi_75":
+        features = select_features(fixed_features.weights_100_loi, 75)
         def load_data_wrapper(data_dir, resample_interval=None, filter_null_power=False):
             return load_data(data_dir, resample_interval=resample_interval, filter_null_power=filter_null_power, derived_features=True, selected_features=features)
         return load_data_wrapper

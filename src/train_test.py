@@ -184,7 +184,7 @@ def main():
 
 
 def make_stacked_ensemble():
-    models = [sklearn.ensemble.RandomForestRegressor(n_estimators=500, max_features=64, max_depth=42, min_samples_split=10, n_jobs=-1),
+    models = [helpers.sk.with_val(sklearn.ensemble.RandomForestRegressor(n_estimators=500, max_features=64, max_depth=42, min_samples_split=10, n_jobs=-1)),
               make_nn()[0],
               make_nn(units=800, lr=2.5e-4)[0],
               with_non_negative(make_rnn(time_steps=4)[0]),
