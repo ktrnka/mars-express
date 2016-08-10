@@ -9,8 +9,6 @@ import sys
 from operator import itemgetter
 
 import numpy
-import pandas
-import scipy.stats
 import sklearn.cross_validation
 import sklearn.dummy
 import sklearn.ensemble
@@ -19,8 +17,9 @@ import sklearn.linear_model
 
 import helpers.general
 import helpers.sk
+from helpers.feature_selection import score_features_random_forest
 from helpers.sk import rms_error
-from loaders import centered_ewma, load_split_data, get_loader, add_loader_arguments
+from loaders import load_split_data, get_loader, add_loader_arguments
 from train_test import make_nn, make_rnn, cross_validate, with_scaler, with_non_negative
 
 
@@ -70,28 +69,6 @@ def cross_validated_select(dataset, splits, feature_scoring_function, std_dev_we
     return score_matrix.mean(axis=0) + std_dev_weight * score_matrix.std(axis=0)
 
 
-def multivariate_select(dataset, feature_scoring_function, weight_outputs=False):
-    output_weights = dataset.outputs.mean(axis=0) + dataset.outputs.std(axis=0)
-
-    scores = []
-    for output_index in range(dataset.outputs.shape[1]):
-        output = dataset.outputs[:, output_index]
-
-        scores.append(feature_scoring_function(dataset.inputs, output))
-
-    score_matrix = numpy.vstack(scores) # M outputs x N features
-
-    if weight_outputs:
-        # should be 1 x N
-        return output_weights.dot(score_matrix)
-    else:
-        return score_matrix.mean(axis=0)
-
-
-def ensemble_feature_scores(*scores):
-    return numpy.vstack(scores).prod(axis=0)
-
-
 def test_models(dataset, name, with_nn=True, with_rnn=False):
     print("Evaluating {}, {} features".format(name, dataset.inputs.shape[1]))
     cross_validate(dataset, with_scaler(sklearn.linear_model.ElasticNet(0.001), "en"))
@@ -103,40 +80,6 @@ def test_models(dataset, name, with_nn=True, with_rnn=False):
         cross_validate(dataset, with_scaler(with_non_negative(make_rnn()[0]), "rnn"))
 
 
-def make_select_f(num_features, ewma=False):
-    def score_features_f(X, y):
-        selector = sklearn.feature_selection.SelectKBest(score_func=sklearn.feature_selection.f_regression, k=num_features)
-
-        if ewma:
-            y = centered_ewma(pandas.Series(y), 30).values
-        selector.fit(X, y)
-        return selector.scores_
-
-    return score_features_f
-
-
-def test_simple(dataset, num_features):
-    selector = sklearn.feature_selection.SelectKBest(score_func=sklearn.feature_selection.f_regression, k=num_features)
-    selector.fit(dataset.inputs, dataset.outputs.sum(axis=1))
-    reduced_dataset = dataset.select_features(num_features, selector.scores_)
-    test_models(reduced_dataset, "f_regression(sum)", with_nn=False)
-
-    # try with ewma
-    reduced_dataset = dataset.select_features(num_features, make_select_f(num_features, True)(dataset.inputs, dataset.outputs.sum(axis=1)))
-    test_models(reduced_dataset, "f_regression_ewma(sum)", with_nn=False)
-
-
-def test_simple_multivariate(dataset, num_features):
-    scores = multivariate_select(dataset, make_select_f(num_features))
-    reduced_dataset = dataset.select_features(num_features, scores)
-    test_models(reduced_dataset, "f_regression(multivariate)", with_nn=False)
-
-    scores = multivariate_select(dataset, make_select_f(num_features), weight_outputs=True)
-    print(scores.shape)
-    reduced_dataset = dataset.select_features(num_features, scores)
-    test_models(reduced_dataset, "f_regression(weighted multivariate)", with_nn=False)
-
-
 def test_select_from_en(dataset, num_features):
     model = with_scaler(sklearn.linear_model.ElasticNet(0.001), "en")
     model.fit(dataset.inputs, dataset.outputs.sum(axis=1))
@@ -145,16 +88,10 @@ def test_select_from_en(dataset, num_features):
     test_models(reduced_dataset, "ElasticNet(sum)")
 
 
-def score_features_elasticnet(X, Y):
+def score_features_elastic_net(X, Y):
     model = with_scaler(sklearn.linear_model.ElasticNet(0.001), "en")
     model.fit(X, Y.sum(axis=1))
     return abs(model.named_steps["en"].coef_)
-
-
-def score_features_random_forest(X, Y):
-    model = sklearn.ensemble.RandomForestRegressor(n_estimators=100, max_features=64, max_depth=42, min_samples_split=10, n_jobs=-1)
-    model.fit(X, Y)
-    return model.feature_importances_
 
 
 def score_features_ridge(X, Y):
@@ -237,11 +174,9 @@ def score_features_deform(X, Y, splits, std_dev_weight=-.05, model_type="linear"
 
     return feature_scores
 
-def inverse_rank_order(weights):
-    return 0.9 ** scipy.stats.rankdata(weights)
 
 def test_select_from_en_cv(dataset, num_features, splits):
-    scores = cross_validated_select(dataset, splits, score_features_elasticnet)
+    scores = cross_validated_select(dataset, splits, score_features_elastic_net)
     reduced_dataset = dataset.select_features(num_features, scores, verbose=1)
     test_models(reduced_dataset, "CV(ElasticNet(sum))")
 
@@ -249,78 +184,9 @@ def test_select_from_en_cv(dataset, num_features, splits):
     reduced_dataset = dataset.select_features(num_features, diversified_scores, verbose=1)
     test_models(reduced_dataset, "DIVERSIFY! CV(ElasticNet(sum))")
 
-def test_rf_cv(dataset, num_features, splits):
-    scores = cross_validated_select(dataset, splits, score_features_random_forest)
-    reduced_dataset = dataset.select_features(num_features, scores, verbose=1)
-    test_models(reduced_dataset, "CV(RandomForest(individual))")
-
-    diversified_scores = diversify(dataset.feature_names, scores)
-    reduced_dataset = dataset.select_features(num_features, diversified_scores, verbose=1)
-    test_models(reduced_dataset, "DIVERSIFY! CV(RandomForest(individual))")
-
-
-def test_select_from_cv2(dataset, num_features, splits, std_dev_weight=-.05):
-    model = with_scaler(sklearn.linear_model.ElasticNet(0.001), "en")
-
-    scores = []
-    for train, test in splits:
-        model.fit(dataset.inputs[train], dataset.outputs[train])
-        scores.append(abs(model.named_steps["en"].coef_).mean(axis=0) / -rms_error(model, dataset.inputs[test], dataset.outputs[test]))
-
-    score_matrix = numpy.vstack(scores)
-    merged_scores = score_matrix.mean(axis=0) + std_dev_weight * score_matrix.std(axis=0)
-
-    reduced_dataset = dataset.select_features(num_features, merged_scores, verbose=1)
-    test_models(reduced_dataset, "CV+Test(ElasticNet(sum))")
-
-
-def test_select_from_rf(dataset, num_features):
-    model = sklearn.ensemble.RandomForestRegressor(40, max_depth=20)
-    model.fit(dataset.inputs, dataset.outputs.sum(axis=1))
-
-    reduced_dataset = dataset.select_features(num_features, model.feature_importances_, verbose=1)
-    test_models(reduced_dataset, "RandomForest(sum)")
-
-def select_nonzero(dataset):
-    model = with_scaler(sklearn.linear_model.ElasticNet(0.001), "en")
-    model.fit(dataset.inputs, dataset.outputs)
-    scores = abs(model.named_steps["en"].coef_).mean(axis=0)
-    return dataset.select_nonzero_features(scores, verbose=1)
-
-
-def test_rfecv_en(dataset, num_features, tuning_splits, prefilter=True):
-    model = sklearn.linear_model.ElasticNet(0.001)
-
-    if prefilter:
-        dataset = select_nonzero(dataset)
-
-    selector = sklearn.feature_selection.RFECV(model, cv=tuning_splits, step=5, scoring=rms_error)
-
-    X = helpers.sk.ClippedRobustScaler().fit_transform(dataset.inputs)
-    selector.fit(X, dataset.outputs.mean(axis=1))
-
-    reduced_dataset = dataset.select_features(num_features, selector.ranking_, higher_is_better=False, verbose=1)
-    test_models(reduced_dataset, "RFECV(ElasticNet(sum))")
-
-    model.fit(X, dataset.outputs.sum(axis=1))
-    ensembled_weights = abs(model.coef_) / selector.ranking_
-    reduced_dataset = dataset.select_features(num_features, ensembled_weights, verbose=1)
-    test_models(reduced_dataset, "Ens of RFECV+EN(ElasticNet(sum))")
-
-    ensembled_weights = abs(model.coef_) * .75 ** selector.ranking_
-    reduced_dataset = dataset.select_features(num_features, ensembled_weights, verbose=1)
-    test_models(reduced_dataset, "Ens of RFECV+EN(ElasticNet(sum)) V2")
-
-    # ensemble of leave one out, leave one in, coef but no zero clip, RFECV
-    loi_scores = score_features_loi(dataset.inputs, dataset.outputs, tuning_splits, rms_error)
-    loo_scores = score_features_loo(dataset.inputs, dataset.outputs, tuning_splits, rms_error)
-    ensembled_weights = .5 ** loi_scores * .5 ** loo_scores * (abs(model.coef_) + .1) / selector.ranking_
-    reduced_dataset = dataset.select_features(num_features, ensembled_weights, verbose=1)
-    test_models(reduced_dataset, "Ens of RFECV+EN+LOI+LOO(ElasticNet(sum)) V2")
-
 
 def test_simple_ensemble(dataset, num_features, splits, loi_model="linear"):
-    en_cv_scores = cross_validated_select(dataset, splits, score_features_elasticnet)
+    en_cv_scores = cross_validated_select(dataset, splits, score_features_elastic_net)
 
     # ensemble of leave one out, leave one in, coef but no zero clip, RFECV
     loi_scores = score_features_loi(dataset.inputs, dataset.outputs, splits, rms_error, model=loi_model)
@@ -329,9 +195,10 @@ def test_simple_ensemble(dataset, num_features, splits, loi_model="linear"):
     reduced_dataset = dataset.select_features(num_features, scores, verbose=1)
     test_models(reduced_dataset, "Ensemble of ENCV+LOI({})".format(loi_model))
 
+
 def test_cv_ensemble(dataset, num_features, splits):
-    scores1 = cross_validated_select(dataset, splits, score_features_elasticnet)
-    scores2 = cross_validated_select(dataset, dataset.splits, score_features_elasticnet)
+    scores1 = cross_validated_select(dataset, splits, score_features_elastic_net)
+    scores2 = cross_validated_select(dataset, dataset.splits, score_features_elastic_net)
 
     scores = (scores1 + .1) * (scores2 + .1)
     test_models(dataset.select_features(num_features, scores, verbose=1), "Ensemble of ENCV on both CV splits")
@@ -340,7 +207,7 @@ def test_cv_ensemble(dataset, num_features, splits):
     test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Ensemble of ENCV on both CV splits")
 
 
-def test_cv_noise_ensemble(dataset, num_features, noise_list=[0.03], noise_iter=1, score_function=score_features_elasticnet, stddev_weight=0.05, score_cv=False):
+def test_cv_noise_ensemble(dataset, num_features, noise_list=[0.03], noise_iter=1, score_function=score_features_elastic_net, stddev_weight=0.05, score_cv=False):
     noise_list = noise_list * noise_iter
     scores = []
 
@@ -358,24 +225,6 @@ def test_cv_noise_ensemble(dataset, num_features, noise_list=[0.03], noise_iter=
 
     diversified_scores = diversify(dataset.feature_names, scores)
     test_models(dataset.select_features(num_features, diversified_scores, verbose=1), "Diversified Noise*CV ensemble {}".format(score_function.__name__))
-
-
-def test_subspace_selection(dataset, num_features, splits, prefilter=True):
-    if prefilter:
-        dataset = select_nonzero(dataset)
-
-    orig_num_features = dataset.inputs.shape[1]
-
-    while dataset.inputs.shape[1] > num_features * 2:
-        model = helpers.sk.MultivariateBaggingRegressor(with_scaler(sklearn.linear_model.Ridge(), "rr"), max_features=16, n_estimators=orig_num_features)
-        feature_scores = model.evaluate_features_cv(dataset.inputs, dataset.outputs, splits)
-        dataset = dataset.select_features(0.75, feature_scores, higher_is_better=False)
-
-    model = helpers.sk.MultivariateBaggingRegressor(with_scaler(sklearn.linear_model.Ridge(), "rr"), max_features=num_features, n_estimators=orig_num_features)
-    feature_scores = model.evaluate_features_cv(dataset.inputs, dataset.outputs, splits)
-    dataset = dataset.select_features(num_features, feature_scores, higher_is_better=False)
-
-    test_models(dataset, "subspace elimination")
 
 
 def test_subspace_simple(dataset, num_features, splits, num_iter=500):
@@ -451,46 +300,12 @@ def test_subspace_mlp(dataset, num_features, splits, num_iter=100):
     test_models(reduced_dataset, "subspace testing with nn, simple merger of top feature sets")
 
 
-
-
 def test_loo_loi(dataset, num_features, splits):
     test_models(dataset.select_features(num_features, score_features_loi(dataset.inputs, dataset.outputs, splits, rms_error), verbose=1), "leave one in")
-
     test_models(dataset.select_features(num_features, score_features_loo(dataset.inputs, dataset.outputs, splits, rms_error), verbose=1), "leave one out")
 
-def rfe_eval(estimator, dataset, num_features, splits, step=2):
-    current_data = dataset
-    while current_data.inputs.shape[1] - step >= num_features:
-        # weed out S features with LOO
-        scores = score_features_loo(current_data.inputs, current_data.outputs, splits, rms_error, model_override=estimator, prob_test=0.5)
-        current_data = current_data.select_features(current_data.inputs.shape[1] - step, scores, verbose=1)
-
-    # eliminate the rest
-    leftover = current_data.inputs.shape[1] - num_features
-    if leftover:
-        scores = score_features_loo(current_data.inputs, current_data.outputs, splits, rms_error, model_override=estimator, prob_test=0.5)
-        current_data = current_data.select_features(leftover, scores, verbose=1)
-
-    selected_features = set(current_data.feature_names)
-    feature_indicators = numpy.asarray([f in selected_features for f in dataset.feature_names], dtype=numpy.int8)
-    return feature_indicators
-
-
-def test_rfe_hybrid(dataset, num_features, splits, preselect=True):
-    # select down to num_features * 2 using a reasonable but naive method
-    if preselect:
-        scores = cross_validated_select(dataset, splits, score_features_elasticnet)
-        dataset = dataset.select_features(num_features * 2, scores, verbose=1)
-        test_models(dataset, "EN-CV(sum) to features * 2")
-
-    # select the rest of the way down with RFE LOO on MLP
-    scores = rfe_eval(None, dataset, num_features, splits, step=3)
-
-    # evaluate
-    test_models(dataset.select_features(num_features, scores, verbose=1), "RFE/LOO hybrid")
-
-
 def with_noise(dataset, noise, temporal=False):
+    """Make a variant of this dataset with noise in the inputs"""
     if temporal:
         noised_inputs = helpers.general.add_temporal_noise(dataset.inputs, noise)
     else:
@@ -504,10 +319,7 @@ def test_noise_insensitivity(dataset, num_features, splits, noise=0.01, num_nois
     """Test the features on a model with noise variations"""
     scores = []
     for i in range(num_noise):
-        scores.append(cross_validated_select(with_noise(dataset, noise), splits, score_features_elasticnet))
-
-    if nonparametric:
-        scores = [inverse_rank_order(s) for s in scores]
+        scores.append(cross_validated_select(with_noise(dataset, noise), splits, score_features_elastic_net))
 
     score_matrix = numpy.vstack(scores)
     scores = score_matrix.mean(axis=0)

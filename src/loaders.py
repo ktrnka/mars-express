@@ -326,8 +326,7 @@ def load_data(data_dir, resample_interval=None, filter_null_power=False, derived
     event_sampled_df.drop("flagcomms", axis=1, inplace=True)
 
     # select columns or take preselected ones
-    for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK",
-                     "RADIO_SCIENCE"]:
+    for ftl_type in ["SLEW", "EARTH", "INERTIAL", "D4PNPO", "MAINTENANCE", "NADIR", "WARMUP", "ACROSS_TRACK", "RADIO_SCIENCE"]:
         dest_name = "FTL_" + ftl_type
         event_sampled_df[dest_name] = get_event_series(event_sampled_df.index,
                                                        get_ftl_periods(ftl_data[ftl_data["type"] == ftl_type]))

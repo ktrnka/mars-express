@@ -1,5 +1,10 @@
 from __future__ import unicode_literals
 from __future__ import print_function
+
+"""
+Take a mean of two CSV prediction files
+"""
+
 import sys
 import argparse
 import pandas

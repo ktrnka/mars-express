@@ -1,11 +1,14 @@
 from __future__ import unicode_literals
 
+"""
+Run this to generate the preprocessed feature matrix so that you don't need to do it every time.
+"""
+
+import argparse
 import logging
 import sys
-import argparse
 
 import loaders
-import train_test
 from helpers.general import Timed, with_date, with_num_features, _with_extra
 
 

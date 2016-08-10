@@ -3,7 +3,7 @@ from operator import itemgetter
 
 import fixed_features
 from loaders import parse_cut_feature, select_features
-from test_feature_selection import split_feature_name, diversify
+from run_feature_selection import split_feature_name, diversify
 
 
 class FeatureNameTests(unittest.TestCase):
