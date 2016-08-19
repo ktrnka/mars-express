@@ -17,14 +17,14 @@ I'll do some writeups on [my blog](https://kwtrnka.wordpress.com/) about this bu
 
 # Notes for writeup
 
-Right now I'm trying to get the breadth of interesting experiments and I'll merge in results as I go through Trello.
+Right now I'm trying to get the breadth of interesting experiments and I'll merge in results as I go through Trello. I started off recording experiments in google sheets but I didn't like the organization of it. Now I'm realizing it's a huge pain to archive the hyperparameter experimental notes which I put in sheets notes on the result values and that doesn't export... but for now here's the [raw doc](analysis/experimental results.csv).
 
 ## Feature engineering
 
 * Representing umbra and other begin/end events as time spent in that range by setting indicators on 5-min windows then integrating
 * Bad initial design doing things like 1h, 2h, 5h time lags. When doing the massive feature selection experiment I found it was much cleaner to do powers of 4 rather than anything like powers of 2 because when you do powers of 4 the various time delays are only 25% overlapped not 50%. Feature correlation was a huge issue in the mega FS experiment.
 * sin/cos of angles (no improvement)
-* feature combinations with plus/minus/mult/div (no improvement, but this was early on)
+* feature combinations with plus/minus/mult/div (no improvement, but this was early on). There's some results of this on daily sampled data in [feature_interactions.txt](analysis/feature_interactions.txt)
 * automatically tried a bunch of feature delays early on in ipython, that found some decent features like that nadir 400h one. Also automatically tried sqrt/log. Did this all by training linear regression on the base feature in isolation and then the transformed version then measuring improvement/degradation. Got some decent ones here. 
 * wanted to get things like percent of time sx was near 30 deg but I couldn't figure out how to automatically find the relevant reference points
 * SAAF rolling histogram was moderately useful, took some pandas tricks to get it working
@@ -96,4 +96,4 @@ Right now I'm trying to get the breadth of interesting experiments and I'll merg
 ## Other
 
 * Keras 1.0.1 gave worse MSE than 1.0.0 despite the speedup so I reverted. Took a while to figure that out tho.
-* Learned Amazon EC2 and GPU. Cnmem super important. Use fast math for GPU. Also Keras unroll=True speedup for RNN. GPU maybe 10x for MLP but only like 2x for RNN. (add google doc notes)
+* Learned Amazon EC2 and GPU. Cnmem super important. Use fast math for GPU. Also Keras unroll=True speedup for RNN. GPU maybe 10x for MLP but only like 2x for RNN. The speed tests are in [this doc](analysis/GPU speed testing.csv). Also did some [basic matrix mult benchmarks on CPU](analysis/numpy benchmarks.csv).
