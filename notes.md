@@ -1,17 +1,18 @@
-Issues
-======
+_This is some of my old notes from early in the competition_
+
+# Issues
 
 * Communication issues may result in gaps in the data
 * Usually one observation is made every 30 seconds or 60 seconds. The goal of the competition is to predict the average electric current per hour.
 * Umbra and penumbra events are typically around 30 minutes long but we're predicting in 1-hour intervals so we need to represent them differently.
 
-Evaluation notes
-----------------
+## Evaluation notes
 
 * Some of the signals stay mostly at their mean with little variation. Others vary over time.
 
-Baselines
----------
+## Baselines
+
+_I think this section is MSE not RMSE_
 
 * DummyRegressor(mean): 0.264 +/- 0.039
 * Although there's typically only 2-3 values, predict mean is much better than predict median.
@@ -26,8 +27,7 @@ RMS with 1H approximation: 0.192
 RMS with 30M approximation: 0.234
 ```
 
-Modeling notes
-==============
+# Modeling notes
 
 Predict mean is around 0.125.
 
@@ -36,20 +36,22 @@ appear to work well on training data but doesn't generalize to the testing data.
 RF. Running adaboost on linear regression did very poorly. Neural networks appear to generalize extremely well but
 have NaN problems, likely due to training for mse/mae.
 
-Linear regression notes
--Sometimes when I add rolling means it overfits and has enormous MSE like 10k. When I sampled the rolling means as ints
+## Linear regression notes
+
+* Sometimes when I add rolling means it overfits and has enormous MSE like 10k. When I sampled the rolling means as ints
 that fixed it. This problem was even more apparent with some of the LR variants like PassiveAggressiveRegressor and LARS
 
-Bagged linear regression notes
--sklearn bagging wrapper doesn't support multivariate. Initially I used the multivariate wrapper around bagging around LR
+## Bagged linear regression notes
+
+* sklearn bagging wrapper doesn't support multivariate. Initially I used the multivariate wrapper around bagging around LR
 but it was slow. About 10x speedup by writing my own multivariate bagging wrapper.
--At first I would set a fixed number of features but when using PCA that broke cause the features were reduced so now
+* At first I would set a fixed number of features but when using PCA that broke cause the features were reduced so now
 I'm lazy and just say 80% or so.
--Number of samples isn't that useful; tuning prefers high values close to 100%. It'd probably prefer 100% but I'm using
+* Number of samples isn't that useful; tuning prefers high values close to 100%. It'd probably prefer 100% but I'm using
 a distribution in the random seach
--Bumping up from 10 to 30 estimators didn't do much but seems a little more stable
--Overall it fluctuates a bit
--Tried a variation where I train the first 1/3 of estimators then compute feature importances then use those feature
+* Bumping up from 10 to 30 estimators didn't do much but seems a little more stable
+* Overall it fluctuates a bit
+* Tried a variation where I train the first 1/3 of estimators then compute feature importances then use those feature
 importances to weight the feature sampling in the remaining 2/3. This was consistently worse even when I tried things
 other than mean of the per-estimator importances. There were many variations because I have a feature importance vector
 per estimator and per output. So I tried a mean over the outputs and min over the estimators and also tried max over outputs
@@ -57,43 +59,48 @@ then min over estaimtors. I filled in unknown ones with the overall mean. None o
 absolute value of the coef_ array and everything. Also I found that numpy has a numpy.random.choice that supports a probability
 weighting.
 
-Random forest notes
--Does worse with PCA, closer to test with PCA
--In every single test the test error was way high, like over 2 stddev away from the CV error. Was worse than linear regression usually
--generally it wanted shorter trees without too many features. number of trees didn't matter much
+## Random forest notes
 
-Gradient boosting notes
--Needed to use with multivariate wrapper so it was slow af
--Fits training data better than RF, fits testing data worse than RF
+* Does worse with PCA, closer to test with PCA
+* In every single test the test error was way high, like over 2 stddev away from the CV error. Was worse than linear regression usually
+* generally it wanted shorter trees without too many features. number of trees didn't matter much
 
-AdaBoost
--Couldn't get any improvement over bagging
+## Gradient boosting notes
+* Needed to use with multivariate wrapper so it was slow af
+* Fits training data better than RF, fits testing data worse than RF
 
-Neural network
--More input noise is generally better, even with PCA
--NaN continues to be a big problem
--Activation function unclear but elu/relu tend to NaN more, sigmoid was preferred with PCA
--Learning rate is very important even with Adam
--TimeCV almost always leads to NaN at certain resolutions
--PCA with high dimensions can lead to NaN
--W + b maxnorm constraint fixed NaN in one case (tried it 4x in a row and it was fixed, but didn't fix all cases)
--Batch norm triggers NaN on even the first epoch. W constraint doesn't fix it nor does disabling dropout
--Small L2 on bias = NaN immediately
--Early stopping helps prevent NaN but hurts test acc usually even with like 20 epochs patience
--NaN happens whether I use Adam, RMSProp, or SGD/momentum
--Adam higher eps doesn't help
--Reducing number of outputs didn't help
--NaN in test data seemed to be happening on rows where sy was way out of the regular range so I started using the ClippedRobustScaler for that
--Tried to save Keras weights to file as it trained but it requires h5py which requires a binary external that didn't install
--Doing a StandardScaler after RobustScaler doesn't fix it
--Feature selection doesn't fix NaN
--Hard coding FTL features instead of automatically selecting them didn't help
+## AdaBoost
 
-Gaussian process
--I tried it but then it was using 37gb ram and wasn't done so I had to kill it.
+* Couldn't get any improvement over bagging
 
-Fit a linear + cos curve on time alone
--Didn't beat linear regression on time alone = there may not be seasonal trends at a fixed period
+## Neural network
+
+* More input noise is generally better, even with PCA
+* NaN continues to be a big problem
+* Activation function unclear but elu/relu tend to NaN more, sigmoid was preferred with PCA
+* Learning rate is very important even with Adam
+* TimeCV almost always leads to NaN at certain resolutions
+* PCA with high dimensions can lead to NaN
+* W + b maxnorm constraint fixed NaN in one case (tried it 4x in a row and it was fixed, but didn't fix all cases)
+* Batch norm triggers NaN on even the first epoch. W constraint doesn't fix it nor does disabling dropout
+* Small L2 on bias = NaN immediately
+* Early stopping helps prevent NaN but hurts test acc usually even with like 20 epochs patience
+* NaN happens whether I use Adam, RMSProp, or SGD/momentum
+* Adam higher eps doesn't help
+* Reducing number of outputs didn't help
+* NaN in test data seemed to be happening on rows where sy was way out of the regular range so I started using the ClippedRobustScaler for that
+* Tried to save Keras weights to file as it trained but it requires h5py which requires a binary external that didn't install
+* Doing a StandardScaler after RobustScaler doesn't fix it
+* Feature selection doesn't fix NaN
+* Hard coding FTL features instead of automatically selecting them didn't help
+
+## Gaussian process
+
+* I tried it but then it was using 37gb ram and wasn't done so I had to kill it.
+
+## Fit a linear + cos curve on time alone
+
+* Didn't beat linear regression on time alone = there may not be seasonal trends at a fixed period
 
 Evaluation metrics and CV
 =========================
@@ -141,10 +148,11 @@ Also resampling the longterm data to a sub-day index then interpolating doesn't 
 Mapping events to times was tricky. Like say we have an event from 1:03pm to 2:50pm but the main index is hourly. We could
 set an indicator at 1pm to 1 and 0 otherwise but that doesn't really convey it. At first I tried diffing and assigning
 the amount of time but then I found a MUCH easier way:
--Generate a 5-minute sampled index and assign indicator variables.
--Rolling mean to convert to hourly
--This gives a nice smooth integral of time spent in a given state over the last hour/day/etc
--It took some refactoring but coding this up functionally was much much cleaner.
+
+* Generate a 5-minute sampled index and assign indicator variables.
+* Rolling mean to convert to hourly
+* This gives a nice smooth integral of time spent in a given state over the last hour/day/etc
+* It took some refactoring but coding this up functionally was much much cleaner.
 
 Phobos and Deimos umbra/penumbra events are very short (like 2 min tops) and infrequent so I excluded them.
 
