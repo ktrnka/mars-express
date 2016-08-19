@@ -1,0 +1,22 @@
+,CV 1,CV 2,CV 3,Max,Total,
+Baseline MLP,"90,248","89,304","90,403","90,403",5.5,
+CheckPCI=0,"91,066","88,687","87,241","91,066",4.8,Something went faster but I'm not sure what. Leaving it enabled.
+lib.cnmem=0.5,"163,758","166,424","167,305","167,305",2.4,WHOA
+lib.cnmem=0.9,"168,845","165,937","166,574","168,845",3.1,Hmm it seems as if the startup dominated
+nvcc.fastmath=True,"36,762","175,843","175,380","175,843",6.7,This doesn't make sense... oh the first run was slow so I'll exclude that from the mean
+keras 1.0.1,"179,463","179,827","172,454","179,827",1.5,BUT the error is much higher so I'm reverting this.
+"cuda 7.5, no cudnn","39,499","175,073","173,951","175,073",6.7,
+CheckPCI=0,"175,824","177,457","173,772","177,457",2.9,
+persistent mode,"174,702","171,346","172,151","174,702",3.1,
+cuDNN 5,"173,358","171,608","175,536","175,536",3.1,No change - probably cuDNN isn't being used
+TensorFlow,"35,121","34,644","34,279","35,121",16.2,
+,,,,,,
+Baseline RNN,"15,496","15,500","15,014","15,500",60.6,Ugh this is not too different than my laptop
+"cnmem=0.9, fastmath","19,786","27,608","27,199","27,608",31.8,The first run was slower but after that it sped up. Overall about half the runtime. This might not have the CheckPCI change cause of reboot...
+"CheckPCI=0, persistent mode, cuda 7.5","19,724","26,367",,"26,367",,Just quitting it early cause it takes forever
+cuDNN 5,"27,609","27,187","27,527","27,609",31.6,The real test. Online comments seem to say that only the convolutions have been ported to cuDNN 5
+TensorFlow,"12,356","12,217","12,439","12,439",67.9,Sad
+,,,,,,
+,,,,,,
+MLP CPU c4.8x,"36,649","34,276","35,104","36,649",16.3,Top shows that it's using 18 cores wooo. First run on daily data was super slow. This is running about the speed of my laptop :/
+RNN CPU c4.8x,"9,480","9,340","9,718","9,718",58,This is the speed of my laptop without the unroll speedup
